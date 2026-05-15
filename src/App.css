@@ -30,6 +30,7 @@ body,
     overflow-x: auto;
     padding: 0 10px;
     z-index: 10;
+    padding-left: 90px;
 }
 
 .app-toolbar button {
