@@ -14,6 +14,7 @@ import {
     type ViewerSelection,
 } from "bimatter-viewer-react";
 import { useViewerApiGui } from "./components/useViewerApiGui";
+import BimatterLoader from "./components/Loaders/BimatterLoader";
 
 function getSelectionInfo(selected: ViewerSelection) {
     let selectedElement: SelectedElement | null = null;
@@ -40,6 +41,7 @@ function getSelectionInfo(selected: ViewerSelection) {
 function App() {
     const viewerRef = useRef<ViewerApi>(null);
     const fileInputRef = useRef<HTMLInputElement | null>(null);
+    const [loading, setLoading] = useState<boolean>(false);
     const [modelsData, setModelsData] = useState<ViewerLoadedModels>();
     const [selected, setSelected] = useState<ViewerSelection>({});
     const [viewerApi, setViewerApi] = useState<ViewerApi | null>(null);
@@ -59,10 +61,12 @@ function App() {
 
     const onFilesSelected = async (files: FileList | null) => {
         if (!files?.length) return;
-
+        if (!modelsData || !Object.keys(modelsData).length) {
+            setLoading(true);
+        }
         const models = await loader.loadModel(Array.from(files));
         setLoadedModels(models);
-
+        setLoading(false);
         if (fileInputRef.current) {
             fileInputRef.current.value = "";
         }
@@ -75,6 +79,9 @@ function App() {
     };
 
     const isMobile = viewerApi?.utils.getUserDevice() === "mobile";
+    if (loading) {
+        return <BimatterLoader loading isTransparent></BimatterLoader>;
+    }
     return (
         <div className="app">
             <div className="app-toolbar">
@@ -94,6 +101,7 @@ function App() {
                 </button>
                 <button
                     onClick={() => {
+                        setLoading(true);
                         loader
                             // .loadModel(["./mgu_ar.min.bmt", "./mgu_kr.min.bmt"])
                             .loadModel([
@@ -101,6 +109,7 @@ function App() {
                                 "./demo_kr.min.bmt",
                             ])
                             .then((models) => {
+                                setLoading(false);
                                 setLoadedModels(models);
                             });
                     }}
@@ -110,9 +119,11 @@ function App() {
                 </button>
                 <button
                     onClick={() => {
+                        setLoading(true);
                         loader
                             .loadModel(["./Clinic_Architectural.ifc"])
                             .then((models) => {
+                                setLoading(false);
                                 setLoadedModels(models);
                             });
                     }}
@@ -122,9 +133,11 @@ function App() {
                 </button>
                 <button
                     onClick={() => {
+                        setLoading(true);
                         loader
-                            .loadModel(["./mgu_ar.min.bmt"])
+                            .loadModel(["./mgu_ar.min.bmt", "./mgu_kr.min.bmt"])
                             .then((models) => {
+                                setLoading(false);
                                 setLoadedModels(models);
                             });
                     }}
@@ -134,12 +147,14 @@ function App() {
                 </button>
                 <button
                     onClick={() => {
+                        setLoading(true);
                         loader
                             .loadModel([
                                 "./demo_kr.min.bmt",
                                 "./Clinic_Architectural.ifc",
                             ])
                             .then((models) => {
+                                setLoading(false);
                                 setLoadedModels(models);
                             });
                     }}
