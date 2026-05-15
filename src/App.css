@@ -92,12 +92,20 @@ body,
     min-height: 0;
     min-width: 0;
 }
-
+.app-shell-mobile {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+}
 .app-viewer {
     background: #eef1f4;
     min-height: 0;
     min-width: 0;
     position: relative;
+    width: 100%;
+    height: 100%;
 }
 
 .app-empty {

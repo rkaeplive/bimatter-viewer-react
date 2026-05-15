@@ -13,6 +13,7 @@ import {
     type ViewerLoadedModels,
     type ViewerSelection,
 } from "bimatter-viewer-react";
+import { useViewerApiGui } from "./components/useViewerApiGui";
 
 function getSelectionInfo(selected: ViewerSelection) {
     let selectedElement: SelectedElement | null = null;
@@ -41,9 +42,13 @@ function App() {
     const fileInputRef = useRef<HTMLInputElement | null>(null);
     const [modelsData, setModelsData] = useState<ViewerLoadedModels>();
     const [selected, setSelected] = useState<ViewerSelection>({});
-    const [paintColor, setPaintColor] = useState("#ff002b");
+    const [viewerApi, setViewerApi] = useState<ViewerApi | null>(null);
     const selectionInfo = useMemo(() => getSelectionInfo(selected), [selected]);
-
+    useViewerApiGui({
+        api: viewerApi,
+        modelsData,
+        selected,
+    });
     const setLoadedModels = (models: ViewerLoadedModels) => {
         setSelected({});
         setModelsData((currentModels) => ({
@@ -69,27 +74,7 @@ function App() {
         });
     };
 
-    const forEachSelectedModel = (
-        callback: (modelID: number, ids: number[]) => void,
-    ) => {
-        Object.entries(selected).forEach(([modelID, ids]) => {
-            if (!ids.length) return;
-            callback(Number(modelID), ids);
-        });
-    };
-
-    const paintSelected = () => {
-        forEachSelectedModel((modelID, ids) => {
-            viewerRef.current?.colors.setColor(modelID, ids, paintColor);
-        });
-    };
-
-    const clearSelectedColors = () => {
-        forEachSelectedModel((modelID, ids) => {
-            viewerRef.current?.colors.clearColor(modelID, ids);
-        });
-    };
-
+    const isMobile = viewerApi?.utils.getUserDevice() === "mobile";
     return (
         <div className="app">
             <div className="app-toolbar">
@@ -138,6 +123,18 @@ function App() {
                 <button
                     onClick={() => {
                         loader
+                            .loadModel(["./mgu_kr.min.bmt", "./mgu_ar.min.bmt"])
+                            .then((models) => {
+                                setLoadedModels(models);
+                            });
+                    }}
+                    type="button"
+                >
+                    Load large bmt models
+                </button>
+                <button
+                    onClick={() => {
+                        loader
                             .loadModel([
                                 "./demo_kr.min.bmt",
                                 "./Clinic_Architectural.ifc",
@@ -179,50 +176,22 @@ function App() {
                     Show all
                 </button>
                 <span>Selected: {selectionInfo.count}</span>
-                <div className="app-color-panel">
-                    <span>Paint</span>
-                    <input
-                        aria-label="Paint color"
-                        onChange={(event) => setPaintColor(event.target.value)}
-                        type="color"
-                        value={paintColor}
-                    />
-                    <button
-                        disabled={selectionInfo.count === 0}
-                        onClick={paintSelected}
-                        type="button"
-                    >
-                        Paint selected
-                    </button>
-                    <button
-                        disabled={selectionInfo.count === 0}
-                        onClick={clearSelectedColors}
-                        type="button"
-                    >
-                        Clear selected
-                    </button>
-                    <button
-                        onClick={() =>
-                            viewerRef.current?.colors.clearAllColors()
-                        }
-                        type="button"
-                    >
-                        Clear colors
-                    </button>
-                </div>
             </div>
-            <div className="app-shell">
-                <StructureTree
-                    modelsData={modelsData}
-                    onSelectElements={selectElements}
-                    selectedElement={selectionInfo.selectedElement}
-                />
+            <div className={!isMobile ? "app-shell" : "app-shell-mobile"}>
+                {!isMobile && (
+                    <StructureTree
+                        modelsData={modelsData}
+                        onSelectElements={selectElements}
+                        selectedElement={selectionInfo.selectedElement}
+                    />
+                )}
                 <main className="app-viewer">
                     {modelsData ? (
                         <Viewer
                             ref={viewerRef}
                             modelsData={modelsData}
                             onReady={(api) => {
+                                setViewerApi(api);
                                 api.camera.fitCamera();
                             }}
                             onSelectedChange={setSelected}
@@ -233,10 +202,12 @@ function App() {
                         <div className="app-empty">Load a model</div>
                     )}
                 </main>
-                <ElementProperties
-                    modelsData={modelsData}
-                    selectedElement={selectionInfo.selectedElement}
-                />
+                {!isMobile && (
+                    <ElementProperties
+                        modelsData={modelsData}
+                        selectedElement={selectionInfo.selectedElement}
+                    />
+                )}
             </div>
         </div>
     );

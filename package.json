@@ -10,7 +10,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "bimatter-viewer-react": "^0.2.0",
+    "bimatter-viewer-react": "^0.3.0",
+    "lil-gui": "^0.21.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.6"
   },
