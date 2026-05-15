@@ -91,10 +91,10 @@ export function useViewerApiGui({
 
         const gui = new GUI({
             title: "Viewer API",
-            width: isMobile ? 20 : 330,
+            width: 330,
         });
         gui.domElement.style.top = "48px";
-        gui.domElement.style.right = "350px";
+        gui.domElement.style.right = isMobile ? "20px" : "350px";
         gui.domElement.style.maxHeight = "calc(50vh )";
         if (isMobile) {
             gui.close();
