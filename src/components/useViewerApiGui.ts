@@ -87,14 +87,16 @@ export function useViewerApiGui({
     useEffect(() => {
         if (!api) return;
         const viewerApi = api;
+        const isMobile = viewerApi.utils.getUserDevice() === "mobile";
+
         const gui = new GUI({
             title: "Viewer API",
-            width: 330,
+            width: isMobile ? 20 : 330,
         });
         gui.domElement.style.top = "48px";
         gui.domElement.style.right = "350px";
         gui.domElement.style.maxHeight = "calc(50vh )";
-        if (viewerApi.utils.getUserDevice() === "mobile") {
+        if (isMobile) {
             gui.close();
         }
         const controllers: Controller[] = [];
