@@ -123,7 +123,7 @@ function App() {
                 <button
                     onClick={() => {
                         loader
-                            .loadModel(["./mgu_kr.min.bmt", "./mgu_ar.min.bmt"])
+                            .loadModel(["./mgu_ar.min.bmt"])
                             .then((models) => {
                                 setLoadedModels(models);
                             });
