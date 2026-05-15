@@ -1,73 +1,33 @@
-# React + TypeScript + Vite
+# bimatter-viewer-react demo
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React viewer for Bimatter `.bmt` models and `.ifc` models.
 
-Currently, two official plugins are available:
+All about us you can see on our website [Bimatter](https://bimatter.ru/)
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+Write your issuse here: [GitHub](https://github.com/rkaeplive/bimatter-viewer-react/issues)
 
-## React Compiler
+## HotKeys
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+### Selection
 
-## Expanding the ESLint configuration
+`Left Click` - Select element
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+`Shift + Left Click` - Multi-select element
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+`Ctrl + Left Click` - Toggle element selection
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+`Shift + Drag Right` - Select elements fully inside rectangle
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+`Shift + Drag Left` - Select elements intersected by rectangle
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+`Ctrl + Drag Right` - Unselect elements fully inside rectangle
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+`Ctrl + Drag Left` - Unselect elements intersected by rectangle
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+### Visibility
+
+`C` - Clear hidden / isolated elements
+
+`H` - Hide selected elements
+
+`I` - Isolate selected elements
