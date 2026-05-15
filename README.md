@@ -1,4 +1,4 @@
-# bimatter-viewer-react demo
+# bimatter-viewer-react [Demo](https://rkaeplive.github.io/bimatter-viewer-react/)
 
 React viewer for Bimatter `.bmt` models and `.ifc` models.
 
