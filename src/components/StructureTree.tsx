@@ -1,11 +1,11 @@
 import { useState } from "react";
-import type { ViewerLoadedModels } from "../viewer";
 import type {
+    ViewerLoadedModels,
     BmtModelStructure,
     BmtModelStructureNode,
     BmtPropertyRecord,
     BmtPropertyValue,
-} from "../viewer/Loaders/BmtLoader";
+} from "bimatter-viewer-react";
 
 export type SelectedElement = {
     elementID: number;

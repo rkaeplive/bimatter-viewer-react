@@ -1,10 +1,10 @@
 import type { ReactNode } from "react";
-import type { ViewerLoadedModels } from "../viewer";
-import type { SelectedElement } from "./StructureTree";
 import type {
+    ViewerLoadedModels,
     BmtPropertyRecord,
     BmtPropertyValue,
-} from "../viewer/Loaders/BmtLoader";
+} from "bimatter-viewer-react";
+import type { SelectedElement } from "./StructureTree";
 
 type ElementPropertiesProps = {
     modelsData?: ViewerLoadedModels;
@@ -61,10 +61,7 @@ function getString(value: BmtPropertyValue) {
     return scalar === null ? "" : String(scalar);
 }
 
-function getPropertyItemLabel(
-    item: BmtPropertyRecord,
-    fallbackIndex: number,
-) {
+function getPropertyItemLabel(item: BmtPropertyRecord, fallbackIndex: number) {
     return (
         getString(item.Name) ||
         getString(item.name) ||
@@ -97,7 +94,9 @@ function getPropertyItemValue(item: BmtPropertyRecord): BmtPropertyValue {
 
     return Object.fromEntries(
         Object.entries(item).filter(([key]) => {
-            return !["Name", "name", "Description", "description"].includes(key);
+            return !["Name", "name", "Description", "description"].includes(
+                key,
+            );
         }),
     ) as BmtPropertyRecord;
 }
