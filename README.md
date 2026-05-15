@@ -31,3 +31,7 @@ Write your issuse here: [GitHub](https://github.com/rkaeplive/bimatter-viewer-re
 `H` - Hide selected elements
 
 `I` - Isolate selected elements
+
+### Clipping
+
+`P` - Create clipping plane by model intersection
