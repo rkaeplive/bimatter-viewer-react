@@ -87,7 +87,6 @@ export function useViewerApiGui({
     useEffect(() => {
         if (!api) return;
         const viewerApi = api;
-
         const gui = new GUI({
             title: "Viewer API",
             width: 330,

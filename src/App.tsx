@@ -1,6 +1,6 @@
 import "./App.css";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ElementProperties } from "./components/ElementProperties";
 import {
     StructureTree,
@@ -71,7 +71,9 @@ function App() {
             fileInputRef.current.value = "";
         }
     };
-
+    useEffect(() => {
+        setViewerApi(viewerRef.current);
+    }, []);
     const selectElements = (modelID: number, elementIDs: number[]) => {
         setSelected({
             [modelID]: Array.from(new Set(elementIDs)),
@@ -134,12 +136,14 @@ function App() {
                 <button
                     onClick={() => {
                         setLoading(true);
-                        loader
-                            .loadModel(["./mgu_ar.min.bmt", "./mgu_kr.min.bmt"])
-                            .then((models) => {
-                                setLoading(false);
-                                setLoadedModels(models);
-                            });
+                        const modelPaths =
+                            viewerApi?.utils.getUserDevice() === "pc"
+                                ? ["./mgu_ar.min.bmt", "./mgu_kr.min.bmt"]
+                                : ["./mgu_ar.min.bmt"];
+                        loader.loadModel(modelPaths).then((models) => {
+                            setLoading(false);
+                            setLoadedModels(models);
+                        });
                     }}
                     type="button"
                 >
@@ -193,35 +197,38 @@ function App() {
                 <span>Selected: {selectionInfo.count}</span>
             </div>
             <div className={!isMobile ? "app-shell" : "app-shell-mobile"}>
-                {!isMobile && (
+                {viewerApi && !isMobile ? (
                     <StructureTree
                         modelsData={modelsData}
                         onSelectElements={selectElements}
                         selectedElement={selectionInfo.selectedElement}
                     />
+                ) : (
+                    <div></div>
                 )}
                 <main className="app-viewer">
-                    {modelsData ? (
-                        <Viewer
-                            ref={viewerRef}
-                            modelsData={modelsData}
-                            onReady={(api) => {
-                                setViewerApi(api);
-                                api.camera.fitCamera();
-                            }}
-                            onSelectedChange={setSelected}
-                            selected={selected}
-                            showStats
-                        />
-                    ) : (
+                    {!modelsData && (
                         <div className="app-empty">Load a model</div>
                     )}
+                    <Viewer
+                        ref={viewerRef}
+                        modelsData={modelsData}
+                        onReady={(api) => {
+                            setViewerApi(api);
+                            api.camera.fitCamera();
+                        }}
+                        onSelectedChange={setSelected}
+                        selected={selected}
+                        showStats
+                    />
                 </main>
-                {!isMobile && (
+                {viewerApi && !isMobile ? (
                     <ElementProperties
                         modelsData={modelsData}
                         selectedElement={selectionInfo.selectedElement}
                     />
+                ) : (
+                    <div></div>
                 )}
             </div>
         </div>
