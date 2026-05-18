@@ -59,8 +59,8 @@ function App() {
     const [modelsData, setModelsData] = useState<ViewerLoadedModels>();
     const [selected, setSelected] = useState<ViewerSelection>({});
     const [viewerApi, setViewerApi] = useState<ViewerApi | null>(null);
-    const [exportActiveView, setExportActiveView] = useState(true);
-    const [exportUseMinVersion, setExportUseMinVersion] = useState(true);
+    const [exportActiveView, setExportActiveView] = useState(false);
+    const [exportUseMinVersion, setExportUseMinVersion] = useState(false);
     const [showSpaces, setShowSpaces] = useState(true);
     const [useIfcSpace, setUseIfcSpace] = useState(true);
     const selectionInfo = useMemo(() => getSelectionInfo(selected), [selected]);
