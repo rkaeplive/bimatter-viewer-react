@@ -9,11 +9,11 @@ import type {
 type ViewerApiGuiOptions = {
     api: ViewerApi | null;
     modelsData?: ViewerLoadedModels;
+    onShowIfcSpacesChange?: (showIfcSpaces: boolean) => void;
+    onUseIfcSpaceChange?: (useIfcSpace: boolean) => void;
     selected: ViewerSelection;
-};
-
-type CameraParams = {
-    fitCamera: () => void;
+    showIfcSpaces?: boolean;
+    useIfcSpace?: boolean;
 };
 
 type ColorsParams = {
@@ -47,6 +47,24 @@ type UtilsParams = {
     showStats: boolean;
 };
 
+type SpacesParams = {
+    showIfcSpaces: boolean;
+    useIfcSpace: boolean;
+};
+
+type DimensionsParams = {
+    active: boolean;
+    cancelDrawing: () => void;
+    changeAxes: () => void;
+    color: string;
+    delete: () => void;
+    deleteAll: () => void;
+    endpointScaleFactor: number;
+    snapDistance: number;
+    unit: "m" | "mm";
+    width: number;
+};
+
 function parseIds(value: string) {
     if (!value.trim()) return [];
 
@@ -68,10 +86,16 @@ function getFirstModelID(modelsData?: ViewerLoadedModels) {
 export function useViewerApiGui({
     api,
     modelsData,
+    onShowIfcSpacesChange,
+    onUseIfcSpaceChange,
     selected,
+    showIfcSpaces = true,
+    useIfcSpace = true,
 }: ViewerApiGuiOptions) {
     const selectedRef = useRef(selected);
     const modelsDataRef = useRef(modelsData);
+    const showIfcSpacesRef = useRef(showIfcSpaces);
+    const useIfcSpaceRef = useRef(useIfcSpace);
     const syncGuiRef = useRef<(() => void) | null>(null);
 
     useEffect(() => {
@@ -83,6 +107,16 @@ export function useViewerApiGui({
         modelsDataRef.current = modelsData;
         syncGuiRef.current?.();
     }, [modelsData]);
+
+    useEffect(() => {
+        showIfcSpacesRef.current = showIfcSpaces;
+        syncGuiRef.current?.();
+    }, [showIfcSpaces]);
+
+    useEffect(() => {
+        useIfcSpaceRef.current = useIfcSpace;
+        syncGuiRef.current?.();
+    }, [useIfcSpace]);
 
     useEffect(() => {
         if (!api) return;
@@ -118,10 +152,6 @@ export function useViewerApiGui({
                 if (!ids.length) return;
                 callback(Number(modelID), ids);
             });
-        };
-
-        const cameraParams: CameraParams = {
-            fitCamera: () => run(() => api.camera.fitCamera()),
         };
 
         const colorsParams: ColorsParams = {
@@ -168,7 +198,18 @@ export function useViewerApiGui({
             edgesActive: api.clipping.getEdgesActive(),
             helpersActive: api.clipping.getHelpersActive(),
         };
-
+        const dimensionsParams: DimensionsParams = {
+            active: api.dimensions.getActive(),
+            cancelDrawing: () => run(() => api.dimensions.cancelDrawing()),
+            changeAxes: () => run(() => api.dimensions.changeAxes()),
+            color: "#111827",
+            delete: () => run(() => api.dimensions.delete()),
+            deleteAll: () => run(() => api.dimensions.deleteAll()),
+            endpointScaleFactor: 0.015,
+            snapDistance: api.dimensions.getSnapDistance(),
+            unit: api.dimensions.getUnit(),
+            width: 1,
+        };
         const gridAxesVisibility = api.utils.getGridAxesVisibility();
         const utilsParams: UtilsParams = {
             defaultHotkeysEnabled: api.utils.getDefaultHotkeysEnabled(),
@@ -180,13 +221,23 @@ export function useViewerApiGui({
             showNavCube: api.utils.getShowNavCube(),
             showStats: api.utils.getShowStats(),
         };
+        const spacesParams: SpacesParams = {
+            showIfcSpaces: showIfcSpacesRef.current,
+            useIfcSpace: useIfcSpaceRef.current,
+        };
+        viewerApi.geometryUtils.setIfcSpacesVisibility(
+            spacesParams.showIfcSpaces,
+        );
 
         function syncGuiState() {
             const modelID = getFirstModelID(modelsDataRef.current);
             if (!modelsDataRef.current?.[colorsParams.modelID]) {
                 colorsParams.modelID = modelID;
             }
-
+            dimensionsParams.active = viewerApi.dimensions.getActive();
+            dimensionsParams.snapDistance =
+                viewerApi.dimensions.getSnapDistance();
+            dimensionsParams.unit = viewerApi.dimensions.getUnit();
             clippingParams.active = viewerApi.clipping.getActive();
             clippingParams.edgesActive = viewerApi.clipping.getEdgesActive();
             clippingParams.helpersActive =
@@ -203,15 +254,19 @@ export function useViewerApiGui({
             utilsParams.showNavCube = viewerApi.utils.getShowNavCube();
             utilsParams.showStats = viewerApi.utils.getShowStats();
 
+            spacesParams.showIfcSpaces =
+                viewerApi.geometryUtils.getIfcSpacesVisibility();
+            spacesParams.useIfcSpace = useIfcSpaceRef.current;
+            if (showIfcSpacesRef.current !== spacesParams.showIfcSpaces) {
+                showIfcSpacesRef.current = spacesParams.showIfcSpaces;
+                onShowIfcSpacesChange?.(spacesParams.showIfcSpaces);
+            }
+
             syncControllers();
         }
 
-        const cameraFolder = gui.addFolder("camera");
-        addController(cameraFolder.add(cameraParams, "fitCamera")).name(
-            "fitCamera",
-        );
-
-        const colorsFolder = gui.addFolder("colors");
+        const colorsFolder = gui.addFolder("colorizing");
+        colorsFolder.close();
         addController(colorsFolder.add(colorsParams, "modelID").step(1)).name(
             "modelID",
         );
@@ -239,6 +294,7 @@ export function useViewerApiGui({
         ).name("clearColor(selected)");
 
         const clippingFolder = gui.addFolder("clipping");
+        clippingFolder.close();
         addController(clippingFolder.add(clippingParams, "active"))
             .name("setActive")
             .onChange((value: boolean) =>
@@ -260,8 +316,65 @@ export function useViewerApiGui({
         addController(
             clippingFolder.add(clippingParams, "deleteAllPlanes"),
         ).name("deleteAllPlanes");
+        const dimensionsFolder = gui.addFolder("dimensions");
+        dimensionsFolder.close();
+        addController(dimensionsFolder.add(dimensionsParams, "active"))
+            .name("setActive")
+            .onChange((value: boolean) =>
+                run(() => api.dimensions.setActive(value)),
+            );
+        addController(
+            dimensionsFolder.add(dimensionsParams, "unit", ["m", "mm"]),
+        )
+            .name("setUnit")
+            .onChange((value: "m" | "mm") =>
+                run(() => api.dimensions.setUnit(value)),
+            );
+        addController(
+            dimensionsFolder.add(dimensionsParams, "snapDistance", 0, 10, 0.1),
+        )
+            .name("setSnapDistance")
+            .onChange((value: number) =>
+                run(() => api.dimensions.setSnapDistance(value)),
+            );
+        addController(
+            dimensionsFolder.add(
+                dimensionsParams,
+                "endpointScaleFactor",
+                0.001,
+                0.1,
+                0.001,
+            ),
+        )
+            .name("setEndpointScaleFactor")
+            .onChange((value: number) =>
+                run(() => api.dimensions.setEndpointScaleFactor(value)),
+            );
+        addController(dimensionsFolder.add(dimensionsParams, "width", 1, 8, 1))
+            .name("setWidth")
+            .onChange((value: number) =>
+                run(() => api.dimensions.setWidth(value)),
+            );
+        addController(dimensionsFolder.addColor(dimensionsParams, "color"))
+            .name("setColor")
+            .onChange((value: string) =>
+                run(() => api.dimensions.setColor(value)),
+            );
+        addController(
+            dimensionsFolder.add(dimensionsParams, "changeAxes"),
+        ).name("changeAxes");
+        addController(
+            dimensionsFolder.add(dimensionsParams, "cancelDrawing"),
+        ).name("cancelDrawing");
+        addController(dimensionsFolder.add(dimensionsParams, "delete")).name(
+            "delete",
+        );
+        addController(dimensionsFolder.add(dimensionsParams, "deleteAll")).name(
+            "deleteAll",
+        );
 
         const utilsFolder = gui.addFolder("utils");
+        utilsFolder.close();
         addController(utilsFolder.add(utilsParams, "defaultHotkeysEnabled"))
             .name("setDefaultHotkeysEnabled")
             .onChange((value: boolean) =>
@@ -303,6 +416,23 @@ export function useViewerApiGui({
                 run(() => api.utils.setGridAxisVisibility("top", value)),
             );
 
+        const spaceFolder = gui.addFolder("spaces");
+        spaceFolder.close();
+        addController(spaceFolder.add(spacesParams, "useIfcSpace"))
+            .name("useIfcSpace")
+            .onChange((value: boolean) => {
+                useIfcSpaceRef.current = value;
+                onUseIfcSpaceChange?.(value);
+                syncGuiState();
+            });
+        addController(spaceFolder.add(spacesParams, "showIfcSpaces"))
+            .name("setIfcSpacesVisibility")
+            .onChange((value: boolean) => {
+                showIfcSpacesRef.current = value;
+                onShowIfcSpacesChange?.(value);
+                run(() => api.geometryUtils.setIfcSpacesVisibility(value));
+            });
+
         syncGuiRef.current = syncGuiState;
         syncGuiState();
 
@@ -313,5 +443,5 @@ export function useViewerApiGui({
             syncGuiRef.current = null;
             gui.destroy();
         };
-    }, [api]);
+    }, [api, onShowIfcSpacesChange, onUseIfcSpaceChange]);
 }

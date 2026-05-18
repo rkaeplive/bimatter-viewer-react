@@ -16,6 +16,7 @@ type StructureTreeProps = {
     modelsData?: ViewerLoadedModels;
     onSelectElements?: (modelID: number, elementIDs: number[]) => void;
     selectedElement?: SelectedElement | null;
+    showIfcSpaces?: boolean;
 };
 
 type StructureNode = BmtModelStructureNode & {
@@ -95,6 +96,52 @@ function getNodeChildren(node: StructureNode) {
     }
 
     return [];
+}
+
+function getNodeType(node: StructureNode) {
+    const props = isRecord(node.props) ? node.props : {};
+    const rawType = node.type ?? node.Type ?? props.type ?? props.Type;
+
+    return typeof rawType === "string" ? rawType : "";
+}
+
+function isIfcSpaceNode(node: StructureNode) {
+    return getNodeType(node).toLowerCase() === "ifcspace";
+}
+
+function setNodeChildren(node: StructureNode, children: StructureNode[]) {
+    return {
+        ...node,
+        children,
+    };
+}
+
+function filterIfcSpaceNodes(node: StructureNode): StructureNode[] {
+    const filteredChildren = getNodeChildren(node).flatMap(filterIfcSpaceNodes);
+
+    if (isIfcSpaceNode(node)) {
+        return filteredChildren;
+    }
+
+    return [setNodeChildren(node, filteredChildren)];
+}
+
+function normalizeVisibleStructure(
+    modelID: string,
+    structure: BmtModelStructure,
+    showIfcSpaces: boolean,
+) {
+    const root = normalizeStructure(modelID, structure);
+    if (showIfcSpaces) return root;
+
+    const filteredRoots = filterIfcSpaceNodes(root);
+    if (filteredRoots.length === 1) return filteredRoots[0];
+
+    return {
+        children: filteredRoots,
+        name: `Model ${modelID}`,
+        type: "Model",
+    };
 }
 
 function getSelectableElementIDs(node: StructureNode): number[] {
@@ -244,6 +291,7 @@ export function StructureTree({
     modelsData,
     onSelectElements,
     selectedElement,
+    showIfcSpaces = true,
 }: StructureTreeProps) {
     const [expanded, setExpanded] = useState(() => new Set<string>());
     const modelEntries = Object.entries(modelsData ?? {}).filter(([, model]) =>
@@ -286,9 +334,10 @@ export function StructureTree({
                                     depth={0}
                                     expanded={expanded}
                                     modelID={numericModelID}
-                                    node={normalizeStructure(
+                                    node={normalizeVisibleStructure(
                                         modelID,
                                         model.structure,
+                                        showIfcSpaces,
                                     )}
                                     nodeKey={rootKey}
                                     onSelectElements={onSelectElements}
