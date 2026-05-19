@@ -87,9 +87,10 @@ function App() {
     const [bmtWorkerLoading, setBmtWorkerLoading] = useState(false);
     const [bmtWorkerProgress, setBmtWorkerProgress] =
         useState<WorkerProgressEvent | null>(null);
-    const [ifcWorkerLoading, setIfcWorkerLoading] = useState(false);
-    const [ifcWorkerProgress, setIfcWorkerProgress] =
-        useState<WorkerProgressEvent | null>(null);
+    // const [ifcWorkerLoading, setIfcWorkerLoading] = useState(false);
+
+    // const [ifcWorkerProgress, setIfcWorkerProgress] =
+    //     useState<WorkerProgressEvent | null>(null);
 
     const selectionInfo = useMemo(() => getSelectionInfo(selected), [selected]);
     useViewerApiGui({
@@ -167,52 +168,52 @@ function App() {
 
         downloadFiles(files);
     };
-    const loadIfcModelsByWorker = async () => {
-        setSelected({});
-        setModelsData({});
-        setIfcWorkerLoading(true);
-        setIfcWorkerProgress(null);
+    // const loadIfcModelsByWorker = async () => {
+    //     setSelected({});
+    //     setModelsData({});
+    //     setIfcWorkerLoading(true);
+    //     setIfcWorkerProgress(null);
 
-        try {
-            const models = await loader.loadModel(
-                ["./Clinic_Architectural.ifc"],
-                {
-                    chunk: 500,
-                    collectWorkerChunks: false,
-                    onChunk: (chunk) => {
-                        setModelsData((currentModels) => {
-                            const model = currentModels?.[chunk.modelID] ?? {
-                                data: {},
-                                name: chunk.modelName,
-                                props: {},
-                                structure: {},
-                            };
+    //     try {
+    //         const models = await loader.loadModel(
+    //             ["./Clinic_Architectural.ifc"],
+    //             {
+    //                 chunk: 500,
+    //                 collectWorkerChunks: false,
+    //                 onChunk: (chunk) => {
+    //                     setModelsData((currentModels) => {
+    //                         const model = currentModels?.[chunk.modelID] ?? {
+    //                             data: {},
+    //                             name: chunk.modelName,
+    //                             props: {},
+    //                             structure: {},
+    //                         };
 
-                            return {
-                                ...(currentModels ?? {}),
-                                [chunk.modelID]: {
-                                    ...model,
-                                    data: {
-                                        ...model.data,
-                                        [chunk.geometryID]: chunk.geometry,
-                                    },
-                                },
-                            };
-                        });
-                    },
-                    onProgress: setIfcWorkerProgress,
-                    useIfcSpace,
-                    useWorker: true,
-                },
-            );
+    //                         return {
+    //                             ...(currentModels ?? {}),
+    //                             [chunk.modelID]: {
+    //                                 ...model,
+    //                                 data: {
+    //                                     ...model.data,
+    //                                     [chunk.geometryID]: chunk.geometry,
+    //                                 },
+    //                             },
+    //                         };
+    //                     });
+    //                 },
+    //                 onProgress: setIfcWorkerProgress,
+    //                 useIfcSpace,
+    //                 useWorker: true,
+    //             },
+    //         );
 
-            setModelsData((currentModels) =>
-                mergeLoadedModelMetadata(currentModels, models),
-            );
-        } finally {
-            setIfcWorkerLoading(false);
-        }
-    };
+    //         setModelsData((currentModels) =>
+    //             mergeLoadedModelMetadata(currentModels, models),
+    //         );
+    //     } finally {
+    //         setIfcWorkerLoading(false);
+    //     }
+    // };
 
     const loadBmtModelsByWorker = async () => {
         setSelected({});
@@ -323,13 +324,13 @@ function App() {
                 >
                     Load ifc model
                 </button>
-                <button
+                {/* <button
                     disabled={ifcWorkerLoading}
                     onClick={loadIfcModelsByWorker}
                     type="button"
                 >
                     {ifcWorkerLoading ? "IFC worker..." : "Load ifc worker"}
-                </button>
+                </button> */}
                 <button
                     disabled={bmtWorkerLoading}
                     onClick={loadBmtModelsByWorker}
@@ -459,7 +460,7 @@ function App() {
                 >
                     Selected: {selectionInfo.count}
                 </span>
-                {ifcWorkerProgress && (
+                {/* {ifcWorkerProgress && (
                     <span
                         style={{
                             position: "absolute",
@@ -470,7 +471,7 @@ function App() {
                         Worker: {ifcWorkerProgress.phase}{" "}
                         {Math.round(ifcWorkerProgress.progress * 100)}%
                     </span>
-                )}
+                )} */}
                 {bmtWorkerProgress && (
                     <span
                         style={{
