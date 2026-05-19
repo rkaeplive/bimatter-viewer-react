@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import GUI, { type Controller } from "lil-gui";
 import type {
+    IfcClass,
     ViewerApi,
     ViewerLoadedModels,
     ViewerSelection,
@@ -36,6 +37,12 @@ type ClippingParams = {
     helpersActive: boolean;
 };
 
+type CollectorParams = {
+    collect: () => void;
+    ifcClass: IfcClass;
+    modelID: number;
+};
+
 type UtilsParams = {
     defaultHotkeysEnabled: boolean;
     gridBottom: boolean;
@@ -65,6 +72,69 @@ type DimensionsParams = {
     width: number;
 };
 
+const ifcClasses = [
+    "IfcActuator",
+    "IfcAirTerminal",
+    "IfcAirTerminalBox",
+    "IfcBeam",
+    "IfcBuilding",
+    "IfcBuildingElementProxy",
+    "IfcBuildingStorey",
+    "IfcCableCarrierFitting",
+    "IfcCableCarrierSegment",
+    "IfcCableSegment",
+    "IfcColumn",
+    "IfcCovering",
+    "IfcCurtainWall",
+    "IfcDamper",
+    "IfcDistributionChamberElement",
+    "IfcDoor",
+    "IfcDuctFitting",
+    "IfcDuctSegment",
+    "IfcElectricAppliance",
+    "IfcElementAssembly",
+    "IfcEnergyConversionDevice",
+    "IfcFan",
+    "IfcFastener",
+    "IfcFilter",
+    "IfcFlowController",
+    "IfcFlowFitting",
+    "IfcFlowMovingDevice",
+    "IfcFlowSegment",
+    "IfcFlowStorageDevice",
+    "IfcFlowTerminal",
+    "IfcFlowTreatmentDevice",
+    "IfcFooting",
+    "IfcFurniture",
+    "IfcFurnishingElement",
+    "IfcGrid",
+    "IfcMember",
+    "IfcOpeningElement",
+    "IfcPile",
+    "IfcPipeFitting",
+    "IfcPipeSegment",
+    "IfcPlate",
+    "IfcPump",
+    "IfcRailing",
+    "IfcRamp",
+    "IfcRoof",
+    "IfcSanitaryTerminal",
+    "IfcSite",
+    "IfcSlab",
+    "IfcSpace",
+    "IfcStair",
+    "IfcSwitchingDevice",
+    "IfcSystemFurnitureElement",
+    "IfcTransportElement",
+    "IfcUnitaryEquipment",
+    "IfcValve",
+    "IfcWall",
+    "IfcWallStandardCase",
+    "IfcWindow",
+] satisfies IfcClass[];
+
+const defaultIfcClass: IfcClass = "IfcWall";
+
 function parseIds(value: string) {
     if (!value.trim()) return [];
 
@@ -75,12 +145,23 @@ function parseIds(value: string) {
 }
 
 function getFirstModelID(modelsData?: ViewerLoadedModels) {
-    const firstModelID = Object.keys(modelsData ?? {})
+    return getModelIDs(modelsData)[0] ?? 0;
+}
+
+function getModelIDs(modelsData?: ViewerLoadedModels) {
+    return Object.keys(modelsData ?? {})
         .map(Number)
         .filter((modelID) => Number.isFinite(modelID))
-        .sort((a, b) => a - b)[0];
+        .sort((a, b) => a - b);
+}
 
-    return firstModelID ?? 0;
+function getModelIDOptions(modelsData?: ViewerLoadedModels) {
+    const modelIDs = getModelIDs(modelsData);
+    if (!modelIDs.length) return { "No models": 0 };
+
+    return Object.fromEntries(
+        modelIDs.map((modelID) => [`Model ${modelID}`, modelID]),
+    );
 }
 
 export function useViewerApiGui({
@@ -198,6 +279,28 @@ export function useViewerApiGui({
             edgesActive: api.clipping.getEdgesActive(),
             helpersActive: api.clipping.getHelpersActive(),
         };
+        const collectorParams: CollectorParams = {
+            collect: () => {
+                const modelID = Number(collectorParams.modelID);
+                const modelIDs = getModelIDs(modelsDataRef.current);
+                if (!modelIDs.includes(modelID)) return;
+
+                const elementIDs = api.selector
+                    .collector()
+                    .ofModel(modelID)
+                    .ofType(collectorParams.ifcClass)
+                    .toElementIds();
+
+                api.selector.setSelected(modelID, elementIDs, true);
+                console.info("Collected elements", {
+                    elementIDs,
+                    ifcClass: collectorParams.ifcClass,
+                    modelID,
+                });
+            },
+            ifcClass: defaultIfcClass,
+            modelID: getFirstModelID(modelsDataRef.current),
+        };
         const dimensionsParams: DimensionsParams = {
             active: api.dimensions.getActive(),
             cancelDrawing: () => run(() => api.dimensions.cancelDrawing()),
@@ -228,11 +331,30 @@ export function useViewerApiGui({
         viewerApi.geometryUtils.setIfcSpacesVisibility(
             spacesParams.showIfcSpaces,
         );
+        let collectorModelIDOptionsKey: string | null = null;
+        let collectorModelIDController: Controller | null = null;
+        let colorizeModelIDController: Controller | null = null;
 
         function syncGuiState() {
             const modelID = getFirstModelID(modelsDataRef.current);
             if (!modelsDataRef.current?.[colorsParams.modelID]) {
                 colorsParams.modelID = modelID;
+            }
+            const modelIDs = getModelIDs(modelsDataRef.current);
+            if (!modelIDs.includes(collectorParams.modelID)) {
+                collectorParams.modelID = modelID;
+            }
+            const modelIDOptionsKey = modelIDs.join(",");
+            if (collectorModelIDOptionsKey !== modelIDOptionsKey) {
+                collectorModelIDOptionsKey = modelIDOptionsKey;
+                collectorModelIDController?.options(
+                    getModelIDOptions(modelsDataRef.current),
+                );
+                collectorModelIDController?.enable(modelIDs.length > 0);
+                colorizeModelIDController?.options(
+                    getModelIDOptions(modelsDataRef.current),
+                );
+                colorizeModelIDController?.enable(modelIDs.length > 0);
             }
             dimensionsParams.active = viewerApi.dimensions.getActive();
             dimensionsParams.snapDistance =
@@ -267,9 +389,20 @@ export function useViewerApiGui({
 
         const colorsFolder = gui.addFolder("colorizing");
         colorsFolder.close();
-        addController(colorsFolder.add(colorsParams, "modelID").step(1)).name(
-            "modelID",
-        );
+
+        colorizeModelIDController = addController(
+            colorsFolder.add(
+                colorsParams,
+                "modelID",
+                getModelIDOptions(modelsDataRef.current),
+            ),
+        )
+            .name("modelID")
+            .onChange((value: number | string) => {
+                colorsParams.modelID = Number(value);
+                syncGuiState();
+            });
+
         addController(colorsFolder.add(colorsParams, "ids")).name("ids");
         addController(colorsFolder.addColor(colorsParams, "color")).name(
             "color",
@@ -316,6 +449,28 @@ export function useViewerApiGui({
         addController(
             clippingFolder.add(clippingParams, "deleteAllPlanes"),
         ).name("deleteAllPlanes");
+
+        const collectorFolder = gui.addFolder("collector");
+        // collectorFolder.close();
+        collectorModelIDController = addController(
+            collectorFolder.add(
+                collectorParams,
+                "modelID",
+                getModelIDOptions(modelsDataRef.current),
+            ),
+        )
+            .name("modelID")
+            .onChange((value: number | string) => {
+                collectorParams.modelID = Number(value);
+                syncGuiState();
+            });
+        addController(
+            collectorFolder.add(collectorParams, "ifcClass", ifcClasses),
+        ).name("ifcClass");
+        addController(collectorFolder.add(collectorParams, "collect")).name(
+            "collect",
+        );
+
         const dimensionsFolder = gui.addFolder("dimensions");
         dimensionsFolder.close();
         addController(dimensionsFolder.add(dimensionsParams, "active"))

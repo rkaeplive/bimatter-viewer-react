@@ -51,6 +51,7 @@ function downloadFiles(files: { blob: Blob; name: string }[]) {
         window.setTimeout(() => URL.revokeObjectURL(url), 0);
     });
 }
+
 function App() {
     const viewerRef = useRef<ViewerApi>(null);
     const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -133,6 +134,13 @@ function App() {
             exportFileInputRef.current.value = "";
         }
     };
+    const exportModelsExcel = () => {
+        const files = viewerRef.current?.properties.exportAllExcel() ?? [];
+        if (!files.length) return;
+
+        downloadFiles(files);
+    };
+
     const isMobile = viewerApi?.utils.getUserDevice() === "mobile";
     if (loading) {
         return <BimatterLoader loading isTransparent></BimatterLoader>;
@@ -297,6 +305,16 @@ function App() {
                         />
                         activeView
                     </label>
+                    <div className="app-toolbar-group">
+                        <span className="app-toolbar-title">Excel</span>
+                        <button
+                            disabled={!viewerApi || !modelsData}
+                            onClick={exportModelsExcel}
+                            type="button"
+                        >
+                            Export Excel
+                        </button>
+                    </div>
                 </div>
                 <span
                     style={{
