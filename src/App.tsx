@@ -312,9 +312,15 @@ function App() {
                     onClick={() => {
                         setLoading(true);
                         loader
-                            .loadModel(["./Clinic_Architectural.ifc"], {
-                                useIfcSpace: showSpaces,
-                            })
+                            .loadModel(
+                                [
+                                    "./Clinic_Architectural.ifc",
+                                    "./Clinic_Structural.ifc",
+                                ],
+                                {
+                                    useIfcSpace: showSpaces,
+                                },
+                            )
                             .then((models) => {
                                 setLoading(false);
                                 setLoadedModels(models);
@@ -322,7 +328,7 @@ function App() {
                     }}
                     type="button"
                 >
-                    Load ifc model
+                    Load ifc models
                 </button>
                 {/* <button
                     disabled={ifcWorkerLoading}
@@ -336,7 +342,9 @@ function App() {
                     onClick={loadBmtModelsByWorker}
                     type="button"
                 >
-                    {bmtWorkerLoading ? "BMT worker..." : "Load bmt worker"}
+                    {bmtWorkerLoading
+                        ? "BMT worker..."
+                        : "Load bmt with worker"}
                 </button>
                 <button
                     onClick={() => {
@@ -354,26 +362,7 @@ function App() {
                 >
                     Load large bmt models
                 </button>
-                <button
-                    onClick={() => {
-                        setLoading(true);
-                        loader
-                            .loadModel(
-                                [
-                                    "./demo_kr.min.bmt",
-                                    "./Clinic_Architectural.ifc",
-                                ],
-                                { useIfcSpace: showSpaces },
-                            )
-                            .then((models) => {
-                                setLoading(false);
-                                setLoadedModels(models);
-                            });
-                    }}
-                    type="button"
-                >
-                    Load bmt and ifc models
-                </button>
+
                 <button
                     onClick={() => viewerRef.current?.camera.fitCamera()}
                     type="button"
