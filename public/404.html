@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>bimatter-viewer-react</title>
+        <script>
+            (function () {
+                var base = "/bimatter-viewer-react/";
+                var pathname = window.location.pathname;
+                var route = pathname.indexOf(base) === 0
+                    ? pathname.slice(base.length - 1)
+                    : pathname;
+
+                window.location.replace(
+                    base +
+                        "?redirect=" +
+                        encodeURIComponent(
+                            route + window.location.search + window.location.hash,
+                        ),
+                );
+            })();
+        </script>
+    </head>
+    <body></body>
+</html>

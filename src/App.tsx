@@ -80,6 +80,19 @@ function mergeLoadedModelMetadata(
 function getAppRoutePath() {
     const base = import.meta.env.BASE_URL;
     const normalizedBase = base.endsWith("/") ? base : `${base}/`;
+    const redirectPath = new URLSearchParams(window.location.search).get(
+        "redirect",
+    );
+
+    if (redirectPath?.startsWith("/")) {
+        const redirectUrl = new URL(redirectPath, window.location.origin);
+        const restoredPath = `${normalizedBase}${redirectPath.replace(/^\/+/, "")}`;
+
+        window.history.replaceState(null, "", restoredPath);
+
+        return redirectUrl.pathname;
+    }
+
     const { pathname } = window.location;
 
     if (pathname.startsWith(normalizedBase)) {
