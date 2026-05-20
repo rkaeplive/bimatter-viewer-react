@@ -6,6 +6,8 @@ All about us you can see on our website [Bimatter](https://bimatter.ru/)
 
 Write your issuse here: [GitHub](https://github.com/rkaeplive/bimatter-viewer-react/issues)
 
+## [Documentation](https://rkaeplive.github.io/bimatter-viewer-react/api)
+
 ## HotKeys
 
 ### Selection

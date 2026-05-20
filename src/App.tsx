@@ -6,6 +6,7 @@ import {
     StructureTree,
     type SelectedElement,
 } from "./components/StructureTree";
+import { ApiDocs } from "./components/ApiDocs/ApiDocs";
 import {
     bmtConverter,
     loader,
@@ -75,7 +76,28 @@ function mergeLoadedModelMetadata(
 
     return nextModels;
 }
-function App() {
+
+function getAppRoutePath() {
+    const base = import.meta.env.BASE_URL;
+    const normalizedBase = base.endsWith("/") ? base : `${base}/`;
+    const { pathname } = window.location;
+
+    if (pathname.startsWith(normalizedBase)) {
+        return `/${pathname.slice(normalizedBase.length)}`;
+    }
+
+    return pathname;
+}
+
+function getAppHref(path: string) {
+    const base = import.meta.env.BASE_URL;
+    const normalizedBase = base.endsWith("/") ? base : `${base}/`;
+    const normalizedPath = path.replace(/^\/+/, "");
+
+    return `${normalizedBase}${normalizedPath}`;
+}
+
+function ViewerDemo() {
     const viewerRef = useRef<ViewerApi>(null);
     const fileInputRef = useRef<HTMLInputElement | null>(null);
     const exportFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -177,9 +199,7 @@ function App() {
         }
 
         const shouldShowLoader =
-            showInitialLoader ||
-            !modelsData ||
-            !Object.keys(modelsData).length;
+            showInitialLoader || !modelsData || !Object.keys(modelsData).length;
 
         if (shouldShowLoader) {
             setLoading(true);
@@ -258,6 +278,7 @@ function App() {
 
         downloadFiles(files);
     };
+    const apiDocsHref = getAppHref("/api");
     const isMobile = viewerApi?.utils.getUserDevice() === "mobile";
     if (loading) {
         return <BimatterLoader loading isTransparent></BimatterLoader>;
@@ -288,9 +309,7 @@ function App() {
                     <input
                         checked={useWorker}
                         disabled={workerLoading}
-                        onChange={(event) =>
-                            setUseWorker(event.target.checked)
-                        }
+                        onChange={(event) => setUseWorker(event.target.checked)}
                         type="checkbox"
                     />
                     useWorker
@@ -422,6 +441,12 @@ function App() {
                             Export Excel
                         </button>
                     </div>
+                    <div className="app-toolbar-group">
+                        <span className="app-toolbar-title">Viewer API</span>
+                        <a className="app-toolbar-link" href={apiDocsHref}>
+                            API
+                        </a>
+                    </div>
                 </div>
                 <span
                     style={{
@@ -486,6 +511,16 @@ function App() {
             </div>
         </div>
     );
+}
+
+function App() {
+    const routePath = getAppRoutePath();
+
+    if (routePath === "/api" || routePath.startsWith("/api/")) {
+        return <ApiDocs />;
+    }
+
+    return <ViewerDemo />;
 }
 
 export default App;
