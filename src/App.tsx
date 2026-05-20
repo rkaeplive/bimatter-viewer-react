@@ -12,6 +12,9 @@ import {
     Viewer,
     type ViewerApi,
     type ViewerLoadedModels,
+    type ViewerLoaderWorkerChunk,
+    type ViewerLoadModelOptions,
+    type ViewerModelSource,
     type ViewerSelection,
     type WorkerProgressEvent,
 } from "bimatter-viewer-react";
@@ -84,13 +87,10 @@ function App() {
     const [exportUseMinVersion, setExportUseMinVersion] = useState(false);
     const [showSpaces, setShowSpaces] = useState(true);
     const [useIfcSpace, setUseIfcSpace] = useState(true);
-    const [bmtWorkerLoading, setBmtWorkerLoading] = useState(false);
-    const [bmtWorkerProgress, setBmtWorkerProgress] =
+    const [useWorker, setUseWorker] = useState(false);
+    const [workerLoading, setWorkerLoading] = useState(false);
+    const [workerProgress, setWorkerProgress] =
         useState<WorkerProgressEvent | null>(null);
-    // const [ifcWorkerLoading, setIfcWorkerLoading] = useState(false);
-
-    // const [ifcWorkerProgress, setIfcWorkerProgress] =
-    //     useState<WorkerProgressEvent | null>(null);
 
     const selectionInfo = useMemo(() => getSelectionInfo(selected), [selected]);
     useViewerApiGui({
@@ -110,18 +110,108 @@ function App() {
         }));
     };
 
-    const onFilesSelected = async (files: FileList | null) => {
-        if (!files?.length) return;
-        if (!modelsData || !Object.keys(modelsData).length) {
+    const addWorkerChunk = (chunk: ViewerLoaderWorkerChunk) => {
+        setModelsData((currentModels) => {
+            const model = currentModels?.[chunk.modelID] ?? {
+                data: {},
+                name: chunk.modelName,
+                props: {},
+                structure: {},
+            };
+
+            return {
+                ...(currentModels ?? {}),
+                [chunk.modelID]: {
+                    ...model,
+                    data: {
+                        ...model.data,
+                        [chunk.geometryID]: chunk.geometry,
+                    },
+                },
+            };
+        });
+    };
+
+    const getLargeBmtModelPaths = () =>
+        viewerApi?.utils.getUserDevice() === "pc"
+            ? ["./mgu_ar.min.bmt", "./mgu_kr.min.bmt"]
+            : ["./mgu_ar.min.bmt"];
+
+    const loadModels = async (
+        sources: ViewerModelSource[],
+        options: ViewerLoadModelOptions = {},
+        showInitialLoader = true,
+        clearViewer = false,
+    ) => {
+        setWorkerProgress(null);
+
+        if (useWorker) {
+            setSelected({});
+            if (clearViewer) {
+                setModelsData({});
+            }
+            setWorkerLoading(true);
+
+            try {
+                const models = await loader.loadModel(sources, {
+                    ...options,
+                    collectWorkerChunks: false,
+                    onChunk: addWorkerChunk,
+                    onProgress: setWorkerProgress,
+                    useWorker: true,
+                });
+
+                setModelsData((currentModels) =>
+                    mergeLoadedModelMetadata(currentModels, models),
+                );
+            } finally {
+                setWorkerLoading(false);
+            }
+
+            return;
+        }
+
+        if (clearViewer) {
+            setSelected({});
+            setModelsData({});
+        }
+
+        const shouldShowLoader =
+            showInitialLoader ||
+            !modelsData ||
+            !Object.keys(modelsData).length;
+
+        if (shouldShowLoader) {
             setLoading(true);
         }
-        const models = await loader.loadModel(Array.from(files), {
-            useIfcSpace: showSpaces,
-        });
-        setLoadedModels(models);
-        setLoading(false);
-        if (fileInputRef.current) {
-            fileInputRef.current.value = "";
+
+        try {
+            const models = await loader.loadModel(sources, {
+                ...options,
+                useWorker: false,
+            });
+            setLoadedModels(models);
+        } finally {
+            if (shouldShowLoader) {
+                setLoading(false);
+            }
+        }
+    };
+
+    const onFilesSelected = async (files: FileList | null) => {
+        if (!files?.length) return;
+        try {
+            await loadModels(
+                Array.from(files),
+                {
+                    useIfcSpace: showSpaces,
+                },
+                false,
+            );
+        } finally {
+            if (fileInputRef.current) {
+                fileInputRef.current.value = "";
+            }
         }
     };
     useEffect(() => {
@@ -168,101 +258,11 @@ function App() {
 
         downloadFiles(files);
     };
-    // const loadIfcModelsByWorker = async () => {
-    //     setSelected({});
-    //     setModelsData({});
-    //     setIfcWorkerLoading(true);
-    //     setIfcWorkerProgress(null);
-
-    //     try {
-    //         const models = await loader.loadModel(
-    //             ["./Clinic_Architectural.ifc"],
-    //             {
-    //                 chunk: 500,
-    //                 collectWorkerChunks: false,
-    //                 onChunk: (chunk) => {
-    //                     setModelsData((currentModels) => {
-    //                         const model = currentModels?.[chunk.modelID] ?? {
-    //                             data: {},
-    //                             name: chunk.modelName,
-    //                             props: {},
-    //                             structure: {},
-    //                         };
-
-    //                         return {
-    //                             ...(currentModels ?? {}),
-    //                             [chunk.modelID]: {
-    //                                 ...model,
-    //                                 data: {
-    //                                     ...model.data,
-    //                                     [chunk.geometryID]: chunk.geometry,
-    //                                 },
-    //                             },
-    //                         };
-    //                     });
-    //                 },
-    //                 onProgress: setIfcWorkerProgress,
-    //                 useIfcSpace,
-    //                 useWorker: true,
-    //             },
-    //         );
-
-    //         setModelsData((currentModels) =>
-    //             mergeLoadedModelMetadata(currentModels, models),
-    //         );
-    //     } finally {
-    //         setIfcWorkerLoading(false);
-    //     }
-    // };
-
-    const loadBmtModelsByWorker = async () => {
-        setSelected({});
-        setModelsData({});
-        setBmtWorkerLoading(true);
-        setBmtWorkerProgress(null);
-
-        try {
-            const models = await loader.loadModel(
-                ["./mgu_ar.min.bmt", "./mgu_kr.min.bmt"],
-                {
-                    collectWorkerChunks: false,
-                    onChunk: (chunk) => {
-                        setModelsData((currentModels) => {
-                            const model = currentModels?.[chunk.modelID] ?? {
-                                data: {},
-                                name: chunk.modelName,
-                                props: {},
-                                structure: {},
-                            };
-
-                            return {
-                                ...(currentModels ?? {}),
-                                [chunk.modelID]: {
-                                    ...model,
-                                    data: {
-                                        ...model.data,
-                                        [chunk.geometryID]: chunk.geometry,
-                                    },
-                                },
-                            };
-                        });
-                    },
-                    onProgress: setBmtWorkerProgress,
-                    useWorker: true,
-                },
-            );
-
-            setModelsData((currentModels) =>
-                mergeLoadedModelMetadata(currentModels, models),
-            );
-        } finally {
-            setBmtWorkerLoading(false);
-        }
-    };
     const isMobile = viewerApi?.utils.getUserDevice() === "mobile";
     if (loading) {
         return <BimatterLoader loading isTransparent></BimatterLoader>;
     }
+
     return (
         <div className="app">
             <div className="app-toolbar">
@@ -284,113 +284,99 @@ function App() {
                     style={{ display: "none" }}
                     type="file"
                 />
+                <label className="app-toolbar-checkbox">
+                    <input
+                        checked={useWorker}
+                        disabled={workerLoading}
+                        onChange={(event) =>
+                            setUseWorker(event.target.checked)
+                        }
+                        type="checkbox"
+                    />
+                    useWorker
+                </label>
                 <button
+                    disabled={workerLoading}
                     onClick={() => fileInputRef.current?.click()}
                     type="button"
                 >
                     Load files
                 </button>
                 <button
-                    onClick={() => {
-                        setLoading(true);
-                        loader
-                            // .loadModel(["./mgu_ar.min.bmt", "./mgu_kr.min.bmt"])
-                            .loadModel([
-                                "./demo_ar.min.bmt",
-                                "./demo_kr.min.bmt",
-                            ])
-                            .then((models) => {
-                                setLoading(false);
-                                setLoadedModels(models);
-                            });
-                    }}
+                    disabled={workerLoading}
+                    onClick={() =>
+                        loadModels(
+                            ["./demo_ar.min.bmt", "./demo_kr.min.bmt"],
+                            {},
+                            true,
+                            true,
+                        )
+                    }
                     type="button"
                 >
                     Load bmt models
                 </button>
                 <button
-                    onClick={() => {
-                        setLoading(true);
-                        loader
-                            .loadModel(
-                                [
-                                    "./Clinic_Architectural.ifc",
-                                    "./Clinic_Structural.ifc",
-                                ],
-                                {
-                                    useIfcSpace: showSpaces,
-                                },
-                            )
-                            .then((models) => {
-                                setLoading(false);
-                                setLoadedModels(models);
-                            });
-                    }}
+                    disabled={workerLoading}
+                    onClick={() =>
+                        loadModels(
+                            [
+                                "./Clinic_Architectural.ifc",
+                                "./Clinic_Structural.ifc",
+                            ],
+                            {
+                                ...(useWorker ? { chunk: 500 } : {}),
+                                useIfcSpace: showSpaces,
+                            },
+                            true,
+                            true,
+                        )
+                    }
                     type="button"
                 >
                     Load ifc models
                 </button>
-                {/* <button
-                    disabled={ifcWorkerLoading}
-                    onClick={loadIfcModelsByWorker}
-                    type="button"
-                >
-                    {ifcWorkerLoading ? "IFC worker..." : "Load ifc worker"}
-                </button> */}
                 <button
-                    disabled={bmtWorkerLoading}
-                    onClick={loadBmtModelsByWorker}
-                    type="button"
-                >
-                    {bmtWorkerLoading
-                        ? "BMT worker..."
-                        : "Load bmt with worker"}
-                </button>
-                <button
-                    onClick={() => {
-                        setLoading(true);
-                        const modelPaths =
-                            viewerApi?.utils.getUserDevice() === "pc"
-                                ? ["./mgu_ar.min.bmt", "./mgu_kr.min.bmt"]
-                                : ["./mgu_ar.min.bmt"];
-                        loader.loadModel(modelPaths).then((models) => {
-                            setLoading(false);
-                            setLoadedModels(models);
-                        });
-                    }}
+                    disabled={workerLoading}
+                    onClick={() =>
+                        loadModels(getLargeBmtModelPaths(), {}, true, true)
+                    }
                     type="button"
                 >
                     Load large bmt models
                 </button>
-
-                <button
-                    onClick={() => viewerRef.current?.camera.fitCamera()}
-                    type="button"
-                >
-                    Fit
-                </button>
-                <button
-                    onClick={() =>
-                        viewerRef.current?.geometryUtils.hideSelected()
-                    }
-                    type="button"
-                >
-                    Hide
-                </button>
-                <button
-                    onClick={() =>
-                        viewerRef.current?.geometryUtils.isolateSelected()
-                    }
-                    type="button"
-                >
-                    Isolate
-                </button>
-                <button
-                    onClick={() => viewerRef.current?.geometryUtils.showAll()}
-                    type="button"
-                >
-                    Show all
-                </button>
+                <div className="app-toolbar-group">
+                    <button
+                        onClick={() => viewerRef.current?.camera.fitCamera()}
+                        type="button"
+                    >
+                        Fit
+                    </button>
+                    <button
+                        onClick={() =>
+                            viewerRef.current?.geometryUtils.hideSelected()
+                        }
+                        type="button"
+                    >
+                        Hide
+                    </button>
+                    <button
+                        onClick={() =>
+                            viewerRef.current?.geometryUtils.isolateSelected()
+                        }
+                        type="button"
+                    >
+                        Isolate
+                    </button>
+                    <button
+                        onClick={() =>
+                            viewerRef.current?.geometryUtils.showAll()
+                        }
+                        type="button"
+                    >
+                        Show all
+                    </button>
+                </div>
                 <div className="app-toolbar-group">
                     <span className="app-toolbar-title">Export</span>
                     <button
@@ -449,7 +435,7 @@ function App() {
                 >
                     Selected: {selectionInfo.count}
                 </span>
-                {/* {ifcWorkerProgress && (
+                {workerProgress && (
                     <span
                         style={{
                             position: "absolute",
@@ -457,20 +443,8 @@ function App() {
                             top: 50,
                         }}
                     >
-                        Worker: {ifcWorkerProgress.phase}{" "}
-                        {Math.round(ifcWorkerProgress.progress * 100)}%
-                    </span>
-                )} */}
-                {bmtWorkerProgress && (
-                    <span
-                        style={{
-                            position: "absolute",
-                            left: 720,
-                            top: 50,
-                        }}
-                    >
-                        BMT worker: {bmtWorkerProgress.phase}{" "}
-                        {Math.round(bmtWorkerProgress.progress * 100)}%
+                        Worker: {workerProgress.phase}{" "}
+                        {Math.round(workerProgress.progress * 100)}%
                     </span>
                 )}
             </div>
