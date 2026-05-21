@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useState } from "react";
 
 const installCode = `npm install bimatter-viewer-react`;
 
@@ -136,6 +136,62 @@ const loaderOptions = [
     ],
 ] as const;
 
+const propertiesExcelOptions = [
+    ["fileName", "string", "Export file name."],
+    ["modelName", "string", "Worksheet/model label used inside the file."],
+    ["emptyValue", "string", "Placeholder for empty property values."],
+] as const;
+
+const selectorCollectorMethods = [
+    [
+        "from(source)",
+        "FilteredElementsCollector",
+        "Replaces the collector source with models or model props.",
+    ],
+    [
+        "ofType(type)",
+        "FilteredElementsCollector",
+        "Filters elements by IFC class name or custom type string.",
+    ],
+    [
+        "ofModel(modelID)",
+        "FilteredElementsCollector",
+        "Filters by one model id or several model ids.",
+    ],
+    [
+        "ofLevel(level)",
+        "FilteredElementsCollector<true>",
+        "Filters elements by a ViewerModelLevel from the properties API.",
+    ],
+    [
+        "where(predicate)",
+        "FilteredElementsCollector",
+        "Filters by custom predicate. Where is also available as an alias.",
+    ],
+    [
+        "toElements()",
+        "FilteredElementsResult",
+        "Returns filtered elements with props, grouped by model unless one model was selected.",
+    ],
+    [
+        "toElementIds()",
+        "FilteredElementIdsResult",
+        "Returns filtered element ids. toElementsIds is kept as an alias.",
+    ],
+] as const;
+
+const selectorCollectorCode = `const levelsByModel = viewerRef.current?.properties.getAllLevels(true);
+const firstLevel = levelsByModel?.[0]?.[0];
+
+const wallIdsOnLevel = firstLevel
+    ? viewerRef.current?.selector
+          .collector()
+          .ofLevel(firstLevel)
+          .ofType("IfcWall")
+          .where((element) => Boolean(element.props.name))
+          .toElementIds()
+    : [];`;
+
 const apiGroups = [
     {
         name: "camera",
@@ -165,7 +221,6 @@ const apiGroups = [
             "removeSelected(modelID, ids)",
             "resetSelection(modelID?)",
             "getSelected()",
-            "collector()",
             "setSelectionColor(color)",
             "getSelectionColor()",
             "setPreselectionColor(color)",
@@ -222,8 +277,10 @@ const apiGroups = [
         methods: [
             "getModelProps()",
             "getModelStructure()",
-            "exportExcel(modelID)",
-            "exportAllExcel()",
+            "getAllLevels(recursive?)",
+            "getAllModelLevels(modelID, recursive?)",
+            "exportExcel(modelID, options?)",
+            "exportAllExcel(options?)",
         ],
     },
     {
@@ -250,6 +307,11 @@ const apiGroups = [
 
 type ApiGroup = (typeof apiGroups)[number];
 type ApiGroupName = ApiGroup["name"];
+type ApiSearchItem = {
+    label: string;
+    hash: string;
+    keywords: string;
+};
 type DataTableRow = readonly [string, string, string];
 
 const methodDescriptions: Record<string, string> = {
@@ -272,6 +334,8 @@ const methodDescriptions: Record<string, string> = {
     fitCamera: "Frames all visible model geometry in the camera.",
     getActive: "Returns whether the tool is active.",
     getAllIds: "Returns all known element ids from the geometry index.",
+    getAllLevels: "Returns all structure levels grouped by model id.",
+    getAllModelLevels: "Returns structure levels for one model.",
     getDefaultHotkeysEnabled: "Returns default hotkey state.",
     getDimensions: "Returns current dimension entities.",
     getEdgesActive: "Returns clipping edge visibility.",
@@ -373,9 +437,21 @@ function getSignatureParams(signature: string) {
     return params.split(",").map((param) => param.trim());
 }
 
-function getApiGroupFromHash() {
-    const match = window.location.hash.match(/^#api\/([^/]+)$/);
-    const name = match?.[1];
+function getApiHashParts(hash = window.location.hash) {
+    const match = hash.match(/^#api\/([^/]+)(?:\/([^/]+))?$/);
+
+    if (!match) return null;
+
+    return {
+        groupName: decodeURIComponent(match[1]),
+        blockName: match[2] ? decodeURIComponent(match[2]) : undefined,
+    };
+}
+
+function getApiGroupFromHash(hash = window.location.hash) {
+    const apiHashParts = getApiHashParts(hash);
+    const legacyGroupMatch = hash.match(/^#api-([^-]+)/);
+    const name = apiHashParts?.groupName ?? legacyGroupMatch?.[1];
 
     return apiGroups.find((group) => group.name === name) ?? null;
 }
@@ -384,7 +460,230 @@ function getMethodName(signature: string) {
     return signature.slice(0, signature.indexOf("("));
 }
 
-function getParameterInfo(param: string): DataTableRow {
+function getMethodAnchor(groupName: ApiGroupName, signature: string) {
+    const methodName = getMethodName(signature);
+
+    return `api-${groupName}-${methodName.toLowerCase()}`;
+}
+
+function getApiGroupHash(groupName: ApiGroupName) {
+    return `#api/${encodeURIComponent(groupName)}`;
+}
+
+function getMethodHash(groupName: ApiGroupName, signature: string) {
+    return `${getApiGroupHash(groupName)}/${encodeURIComponent(
+        getMethodName(signature),
+    )}`;
+}
+
+function getApiExtraHash(groupName: ApiGroupName, blockName: string) {
+    return `${getApiGroupHash(groupName)}/${encodeURIComponent(blockName)}`;
+}
+
+function getApiBlockAnchorFromHash(hash = window.location.hash) {
+    const apiHashParts = getApiHashParts(hash);
+
+    if (!apiHashParts?.blockName) {
+        return hash.startsWith("#api-") ? hash.slice(1) : null;
+    }
+
+    const group = apiGroups.find(
+        (apiGroup) => apiGroup.name === apiHashParts.groupName,
+    );
+
+    if (!group) return null;
+
+    if (
+        group.name === "selector" &&
+        apiHashParts.blockName === "FilteredElementsCollector"
+    ) {
+        return "api-selector-filteredelementscollector";
+    }
+
+    if (
+        group.name === "properties" &&
+        apiHashParts.blockName === "ViewerPropertiesExcelOptions"
+    ) {
+        return "api-properties-excel-options";
+    }
+
+    const signature = group.methods.find(
+        (method) =>
+            getMethodName(method).toLowerCase() ===
+            apiHashParts.blockName?.toLowerCase(),
+    );
+
+    return signature ? getMethodAnchor(group.name, signature) : null;
+}
+
+function getScrollAnchorFromHash(hash: string) {
+    if (hash === "#api") return "api";
+
+    const apiBlockAnchor = getApiBlockAnchorFromHash(hash);
+
+    if (apiBlockAnchor) return apiBlockAnchor;
+    if (hash.startsWith("#api/")) return null;
+
+    return hash.match(/^#([A-Za-z0-9_-]+)$/)?.[1] ?? null;
+}
+
+function scrollToDocsTarget(hash: string) {
+    const anchor = getScrollAnchorFromHash(hash);
+
+    if (anchor) {
+        document.getElementById(anchor)?.scrollIntoView({ block: "start" });
+        return;
+    }
+
+    if (getApiGroupFromHash(hash)) {
+        document
+            .querySelector<HTMLElement>(".docs-content")
+            ?.scrollTo({ top: 0 });
+    }
+}
+
+function normalizeSearchText(value: string) {
+    return value.trim().toLowerCase();
+}
+
+function getApiSearchItems(): ApiSearchItem[] {
+    const items: ApiSearchItem[] = [
+        {
+            label: "Install",
+            hash: "#install",
+            keywords: "install npm package setup",
+        },
+        {
+            label: "Viewer component",
+            hash: "#viewer",
+            keywords: "viewer component props modelUrls modelSources",
+        },
+        {
+            label: "Loader API",
+            hash: "#loader",
+            keywords: "loader api loadModel model loading",
+        },
+        {
+            label: "Worker streaming",
+            hash: "#worker",
+            keywords: "worker streaming chunk progress useWorker",
+        },
+        {
+            label: "BMT Convertor",
+            hash: "#bmt-convertor",
+            keywords: "bmt convertor converter export convert ifc bmt",
+        },
+        {
+            label: "ViewerApi overview",
+            hash: "#api",
+            keywords: "viewerapi reference overview api",
+        },
+    ];
+
+    apiGroups.forEach((group) => {
+        items.push({
+            label: group.name,
+            hash: getApiGroupHash(group.name),
+            keywords: `${group.name} ${apiGroupDescriptions[group.name]}`,
+        });
+
+        group.methods.forEach((method) => {
+            const methodName = getMethodName(method);
+
+            items.push({
+                label: `${group.name}.${methodName}`,
+                hash: getMethodHash(group.name, method),
+                keywords: [
+                    group.name,
+                    methodName,
+                    method,
+                    methodDescriptions[methodName],
+                ]
+                    .filter(Boolean)
+                    .join(" "),
+            });
+        });
+    });
+
+    items.push(
+        {
+            label: "selector.FilteredElementsCollector",
+            hash: getApiExtraHash("selector", "FilteredElementsCollector"),
+            keywords:
+                "selector collector filtered elements FilteredElementsCollector ofType ofModel ofLevel where toElements toElementIds",
+        },
+        {
+            label: "properties.ViewerPropertiesExcelOptions",
+            hash: getApiExtraHash("properties", "ViewerPropertiesExcelOptions"),
+            keywords:
+                "properties excel options ViewerPropertiesExcelOptions exportExcel exportAllExcel fileName modelName emptyValue",
+        },
+    );
+
+    return items;
+}
+
+function findApiSearchItem(query: string, items: readonly ApiSearchItem[]) {
+    const normalizedQuery = normalizeSearchText(query);
+
+    if (!normalizedQuery) return null;
+
+    return (
+        items.find(
+            (item) => normalizeSearchText(item.label) === normalizedQuery,
+        ) ??
+        items.find((item) => {
+            const methodName = item.label.split(".").at(-1) ?? item.label;
+
+            return normalizeSearchText(methodName) === normalizedQuery;
+        }) ??
+        items.find((item) =>
+            normalizeSearchText(`${item.label} ${item.keywords}`).includes(
+                normalizedQuery,
+            ),
+        ) ??
+        null
+    );
+}
+
+function getApiSearchScore(query: string, item: ApiSearchItem) {
+    const label = normalizeSearchText(item.label);
+    const searchableText = normalizeSearchText(
+        `${item.label} ${item.keywords}`,
+    );
+
+    if (label === query) return 0;
+    if (label.endsWith(`.${query}`)) return 1;
+    if (label.startsWith(query)) return 2;
+    if (label.includes(query)) return 3;
+    if (searchableText.includes(query)) return 4;
+
+    return -1;
+}
+
+function getApiSearchSuggestions(
+    query: string,
+    items: readonly ApiSearchItem[],
+) {
+    const normalizedQuery = normalizeSearchText(query);
+
+    if (!normalizedQuery) return [];
+
+    return items
+        .map((item) => ({
+            item,
+            score: getApiSearchScore(normalizedQuery, item),
+        }))
+        .filter(({ score }) => score >= 0)
+        .sort((first, second) => first.score - second.score)
+        .slice(0, 8)
+        .map(({ item }) => item);
+}
+
+function getParameterInfo(
+    param: string,
+    groupName?: ApiGroupName,
+): DataTableRow {
     const name = param.replace("?", "");
     const optional = param.endsWith("?");
 
@@ -432,8 +731,15 @@ function getParameterInfo(param: string): DataTableRow {
         ],
         options: [
             param,
-            "ViewerBmtConverterOptions",
-            `BMT export or IFC conversion options.${optionalSuffix}`,
+            groupName === "properties"
+                ? "ViewerPropertiesExcelOptions"
+                : "ViewerBmtConverterOptions",
+            `Export options.${optionalSuffix}`,
+        ],
+        recursive: [
+            param,
+            "boolean",
+            `When true, includes nested structure levels.${optionalSuffix}`,
         ],
         reset: [
             param,
@@ -478,8 +784,10 @@ function getParameterInfo(param: string): DataTableRow {
     );
 }
 
-function getMethodParameterRows(signature: string) {
-    return getSignatureParams(signature).map(getParameterInfo);
+function getMethodParameterRows(signature: string, groupName: ApiGroupName) {
+    return getSignatureParams(signature).map((param) =>
+        getParameterInfo(param, groupName),
+    );
 }
 
 function getSampleArg(param: string) {
@@ -496,6 +804,7 @@ function getSampleArg(param: string) {
     if (normalized === "options") {
         return "{ activeView: true, useMinVersion: true }";
     }
+    if (normalized === "recursive") return "true";
     if (normalized === "reset") return "true";
     if (normalized === "scale") return "0.015";
     if (normalized === "show") return "true";
@@ -526,7 +835,61 @@ function getMethodExample(groupName: ApiGroupName, signature: string) {
 });`;
     }
 
+    if (groupName === "properties") {
+        if (methodName === "exportExcel") {
+            return `viewerRef.current?.properties.exportExcel(0, {
+    fileName: "model-properties",
+    emptyValue: "-",
+});`;
+        }
+
+        if (methodName === "exportAllExcel") {
+            return `viewerRef.current?.properties.exportAllExcel({
+    emptyValue: "-",
+});`;
+        }
+    }
+
     return `viewerRef.current?.${groupName}.${methodName}(${params});`;
+}
+
+function ApiGroupExtra({ groupName }: { groupName: ApiGroupName }) {
+    if (groupName === "selector") {
+        return (
+            <section
+                className="docs-method"
+                id="api-selector-filteredelementscollector"
+            >
+                <h2>
+                    <code>FilteredElementsCollector</code>
+                </h2>
+                <p>
+                    <code>selector.collector()</code> returns a chainable
+                    collector. In 0.5.9 it can filter by{" "}
+                    <code>ViewerModelLevel</code> from the properties API.
+                </p>
+                <CodeBlock>{selectorCollectorCode}</CodeBlock>
+                <DataTable rows={selectorCollectorMethods} />
+            </section>
+        );
+    }
+
+    if (groupName === "properties") {
+        return (
+            <section className="docs-method" id="api-properties-excel-options">
+                <h2>
+                    <code>ViewerPropertiesExcelOptions</code>
+                </h2>
+                <p>
+                    Pass these options to <code>exportExcel</code> and{" "}
+                    <code>exportAllExcel</code>.
+                </p>
+                <DataTable rows={propertiesExcelOptions} />
+            </section>
+        );
+    }
+
+    return null;
 }
 
 function ApiGroupDetail({ group }: { group: ApiGroup }) {
@@ -541,10 +904,17 @@ function ApiGroupDetail({ group }: { group: ApiGroup }) {
             <div className="docs-method-list">
                 {group.methods.map((signature) => {
                     const methodName = getMethodName(signature);
-                    const parameterRows = getMethodParameterRows(signature);
+                    const parameterRows = getMethodParameterRows(
+                        signature,
+                        group.name,
+                    );
 
                     return (
-                        <section className="docs-method" key={signature}>
+                        <section
+                            className="docs-method"
+                            id={getMethodAnchor(group.name, signature)}
+                            key={signature}
+                        >
                             <h2>
                                 <code>{signature}</code>
                             </h2>
@@ -561,6 +931,7 @@ function ApiGroupDetail({ group }: { group: ApiGroup }) {
                         </section>
                     );
                 })}
+                <ApiGroupExtra groupName={group.name} />
             </div>
         </section>
     );
@@ -570,23 +941,107 @@ export function ApiDocs() {
     const [activeApiGroup, setActiveApiGroup] = useState<ApiGroup | null>(
         getApiGroupFromHash,
     );
+    const [apiHash, setApiHash] = useState(() => window.location.hash);
+    const [apiSearchQuery, setApiSearchQuery] = useState("");
+    const [isApiSearchOpen, setIsApiSearchOpen] = useState(false);
     const docsHref = `${import.meta.env.BASE_URL}api`;
+    const apiSearchItems = useMemo(() => getApiSearchItems(), []);
+    const apiSearchSuggestions = useMemo(
+        () => getApiSearchSuggestions(apiSearchQuery, apiSearchItems),
+        [apiSearchItems, apiSearchQuery],
+    );
+    const showApiSearchSuggestions =
+        isApiSearchOpen && apiSearchSuggestions.length > 0;
     const apiSidebarLinks = useMemo(
         () =>
             apiGroups.map((group) => (
-                <a href={`#api/${group.name}`} key={group.name}>
-                    {group.name}
-                </a>
+                <details className="docs-sidebar-methods" key={group.name}>
+                    <summary>{group.name}</summary>
+                    <div className="docs-sidebar-method-list">
+                        <a href={getApiGroupHash(group.name)}>Overview</a>
+                        {group.methods.map((method) => (
+                            <a
+                                href={getMethodHash(group.name, method)}
+                                key={method}
+                            >
+                                {getMethodName(method)}
+                            </a>
+                        ))}
+                        {group.name === "selector" && (
+                            <a
+                                href={getApiExtraHash(
+                                    group.name,
+                                    "FilteredElementsCollector",
+                                )}
+                            >
+                                FilteredElementsCollector
+                            </a>
+                        )}
+                        {group.name === "properties" && (
+                            <a
+                                href={getApiExtraHash(
+                                    group.name,
+                                    "ViewerPropertiesExcelOptions",
+                                )}
+                            >
+                                ViewerPropertiesExcelOptions
+                            </a>
+                        )}
+                    </div>
+                </details>
             )),
         [],
     );
 
     useEffect(() => {
-        const onHashChange = () => setActiveApiGroup(getApiGroupFromHash());
+        const onHashChange = () => {
+            const nextHash = window.location.hash;
+
+            setApiHash(nextHash);
+            setActiveApiGroup(getApiGroupFromHash(nextHash));
+        };
 
         window.addEventListener("hashchange", onHashChange);
         return () => window.removeEventListener("hashchange", onHashChange);
     }, []);
+
+    useEffect(() => {
+        const frameId = window.requestAnimationFrame(() => {
+            scrollToDocsTarget(apiHash);
+        });
+
+        return () => window.cancelAnimationFrame(frameId);
+    }, [activeApiGroup, apiHash]);
+
+    const navigateToApiHash = (hash: string) => {
+        if (window.location.hash === hash) {
+            window.requestAnimationFrame(() => scrollToDocsTarget(hash));
+            return;
+        }
+
+        window.location.assign(hash);
+    };
+
+    const selectApiSearchItem = (searchItem: ApiSearchItem) => {
+        setApiSearchQuery(searchItem.label);
+        setIsApiSearchOpen(false);
+        navigateToApiHash(searchItem.hash);
+    };
+
+    const handleApiSearchSubmit = (event: FormEvent<HTMLFormElement>) => {
+        event.preventDefault();
+
+        const searchItem = findApiSearchItem(apiSearchQuery, apiSearchItems);
+
+        if (!searchItem) return;
+
+        selectApiSearchItem(searchItem);
+    };
+
+    const clearApiSearch = () => {
+        setApiSearchQuery("");
+        setIsApiSearchOpen(false);
+    };
 
     return (
         <div className="docs-page">
@@ -594,6 +1049,70 @@ export function ApiDocs() {
                 <a className="docs-brand" href={docsHref}>
                     bimatter-viewer-react
                 </a>
+                <form
+                    className="docs-search"
+                    onSubmit={handleApiSearchSubmit}
+                    role="search"
+                >
+                    <div className="docs-search-field">
+                        <span aria-hidden="true" className="docs-search-icon" />
+                        <input
+                            aria-autocomplete="list"
+                            aria-controls="api-docs-search-results"
+                            aria-expanded={showApiSearchSuggestions}
+                            aria-label="Search API documentation"
+                            onBlur={() => setIsApiSearchOpen(false)}
+                            onChange={(event) => {
+                                setApiSearchQuery(event.target.value);
+                                setIsApiSearchOpen(true);
+                            }}
+                            onFocus={() => setIsApiSearchOpen(true)}
+                            placeholder="Search API, e.g. selector.getSelected"
+                            type="text"
+                            value={apiSearchQuery}
+                        />
+                        {apiSearchQuery && (
+                            <button
+                                aria-label="Clear API search"
+                                className="docs-search-clear"
+                                onClick={clearApiSearch}
+                                onMouseDown={(event) => {
+                                    event.preventDefault();
+                                    clearApiSearch();
+                                }}
+                                type="button"
+                            />
+                        )}
+                        {showApiSearchSuggestions && (
+                            <div
+                                className="docs-search-results"
+                                id="api-docs-search-results"
+                                role="listbox"
+                            >
+                                {apiSearchSuggestions.map((item) => (
+                                    <button
+                                        className="docs-search-result"
+                                        key={`${item.hash}-${item.label}`}
+                                        onClick={() =>
+                                            selectApiSearchItem(item)
+                                        }
+                                        onMouseDown={(event) => {
+                                            event.preventDefault();
+                                            selectApiSearchItem(item);
+                                        }}
+                                        role="option"
+                                        type="button"
+                                    >
+                                        <span>{item.label}</span>
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                    <button className="docs-search-submit" type="submit">
+                        Go
+                    </button>
+                </form>
                 <nav className="docs-nav" aria-label="Documentation navigation">
                     <a
                         href="https://rkaeplive.github.io/bimatter-viewer-react/"
@@ -601,6 +1120,13 @@ export function ApiDocs() {
                         target="_blank"
                     >
                         Demo
+                    </a>
+                    <a
+                        href="https://bimatter.ru/"
+                        rel="noreferrer"
+                        target="_blank"
+                    >
+                        Website
                     </a>
                     <a
                         href="https://github.com/rkaeplive/bimatter-viewer-react"
