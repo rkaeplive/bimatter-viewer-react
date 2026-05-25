@@ -253,6 +253,10 @@ body,
     background: #edf3f8;
 }
 
+.structure-tree-label:focus {
+    outline: 0;
+}
+
 .structure-tree-label.is-selected {
     background: #dcecf7;
     color: #0f4f75;

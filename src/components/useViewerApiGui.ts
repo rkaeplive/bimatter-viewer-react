@@ -4,6 +4,7 @@ import type {
     IfcClass,
     ViewerApi,
     ViewerLoadedModels,
+    ViewerModelLevel,
     ViewerSelection,
 } from "bimatter-viewer-react";
 
@@ -32,6 +33,7 @@ type ColorsParams = {
 type ClippingParams = {
     active: boolean;
     createClippingRectangle: () => void;
+    createClippingRectangleBySelected: () => void;
     deleteAllPlanes: () => void;
     edgesActive: boolean;
     helpersActive: boolean;
@@ -39,7 +41,8 @@ type ClippingParams = {
 
 type CollectorParams = {
     collect: () => void;
-    ifcClass: IfcClass;
+    ifcClass: CollectorIfcClass;
+    levelKey: string;
     modelID: number;
 };
 
@@ -133,7 +136,15 @@ const ifcClasses = [
     "IfcWindow",
 ] satisfies IfcClass[];
 
-const defaultIfcClass: IfcClass = "IfcWall";
+const allIfcClassesKey = "All Classes";
+const defaultIfcClass: IfcClass | typeof allIfcClassesKey = allIfcClassesKey;
+
+type CollectorIfcClass = IfcClass | typeof allIfcClassesKey;
+const collectorIfcClasses: CollectorIfcClass[] = [
+    allIfcClassesKey,
+    ...ifcClasses,
+];
+const allCollectorLevelsKey = "__all_levels__";
 
 function parseIds(value: string) {
     if (!value.trim()) return [];
@@ -162,6 +173,69 @@ function getModelIDOptions(modelsData?: ViewerLoadedModels) {
     return Object.fromEntries(
         modelIDs.map((modelID) => [`Model ${modelID}`, modelID]),
     );
+}
+
+function getControllerOptionsKey(options: Record<string, number | string>) {
+    return Object.entries(options)
+        .map(([label, value]) => `${label}:${value}`)
+        .join("|");
+}
+
+function getCollectorLevelKey(modelID: number, levelIndex: number) {
+    return `${modelID}:${levelIndex}`;
+}
+
+function getCollectorLevelLabel(level: ViewerModelLevel, levelIndex: number) {
+    const name = typeof level.name === "string" ? level.name.trim() : "";
+    const type = typeof level.type === "string" ? level.type.trim() : "";
+    const id =
+        typeof level.id === "number" || typeof level.id === "string"
+            ? String(level.id)
+            : "";
+    const title = name || type || `Level ${levelIndex + 1}`;
+    const meta = [
+        type && type !== title ? type : "",
+        id ? `id ${id}` : "",
+        level.elements?.length ? `${level.elements.length} elements` : "",
+    ].filter(Boolean);
+
+    const indexedTitle = `${levelIndex + 1}. ${title}`;
+
+    return meta.length ? `${indexedTitle} (${meta.join(", ")})` : indexedTitle;
+}
+
+function getCollectorLevels(api: ViewerApi, modelID: number) {
+    try {
+        return api.properties.getAllModelLevels(modelID, true);
+    } catch {
+        return [];
+    }
+}
+
+function getCollectorLevelOptions(api: ViewerApi, modelID: number) {
+    const levels = getCollectorLevels(api, modelID);
+
+    return {
+        "All levels": allCollectorLevelsKey,
+        ...Object.fromEntries(
+            levels.map((level, index) => [
+                getCollectorLevelLabel(level, index),
+                getCollectorLevelKey(modelID, index),
+            ]),
+        ),
+    };
+}
+
+function getCollectorLevelByKey(api: ViewerApi, levelKey: string) {
+    if (levelKey === allCollectorLevelsKey) return null;
+
+    const [modelIDValue, levelIndexValue] = levelKey.split(":");
+    const modelID = Number(modelIDValue);
+    const levelIndex = Number(levelIndexValue);
+
+    if (!Number.isFinite(modelID) || !Number.isInteger(levelIndex)) return null;
+
+    return getCollectorLevels(api, modelID)[levelIndex] ?? null;
 }
 
 export function useViewerApiGui({
@@ -275,6 +349,8 @@ export function useViewerApiGui({
             active: api.clipping.getActive(),
             createClippingRectangle: () =>
                 run(() => api.clipping.createClippingRectangle()),
+            createClippingRectangleBySelected: () =>
+                run(() => api.clipping.createClippingRectangle(true)),
             deleteAllPlanes: () => run(() => api.clipping.deleteAllPlanes()),
             edgesActive: api.clipping.getEdgesActive(),
             helpersActive: api.clipping.getHelpersActive(),
@@ -285,20 +361,31 @@ export function useViewerApiGui({
                 const modelIDs = getModelIDs(modelsDataRef.current);
                 if (!modelIDs.includes(modelID)) return;
 
-                const elementIDs = api.selector
-                    .collector()
-                    .ofModel(modelID)
-                    .ofType(collectorParams.ifcClass)
-                    .toElementIds();
+                const level = getCollectorLevelByKey(
+                    api,
+                    collectorParams.levelKey,
+                );
+                const selectedModelID = level?.modelID ?? modelID;
+                const collector = level
+                    ? api.selector.collector().ofLevel(level)
+                    : api.selector.collector().ofModel(modelID);
+                const elementIDs =
+                    collectorParams.ifcClass === allIfcClassesKey
+                        ? collector.toElementIds()
+                        : collector
+                              .ofType(collectorParams.ifcClass)
+                              .toElementIds();
 
-                api.selector.setSelected(modelID, elementIDs, true);
+                api.selector.setSelected(selectedModelID, elementIDs, true);
                 console.info("Collected elements", {
                     elementIDs,
                     ifcClass: collectorParams.ifcClass,
-                    modelID,
+                    level,
+                    modelID: selectedModelID,
                 });
             },
             ifcClass: defaultIfcClass,
+            levelKey: allCollectorLevelsKey,
             modelID: getFirstModelID(modelsDataRef.current),
         };
         const dimensionsParams: DimensionsParams = {
@@ -333,6 +420,8 @@ export function useViewerApiGui({
         );
         let collectorModelIDOptionsKey: string | null = null;
         let collectorModelIDController: Controller | null = null;
+        let collectorLevelOptionsKey: string | null = null;
+        let collectorLevelController: Controller | null = null;
         let colorizeModelIDController: Controller | null = null;
 
         function syncGuiState() {
@@ -343,6 +432,24 @@ export function useViewerApiGui({
             const modelIDs = getModelIDs(modelsDataRef.current);
             if (!modelIDs.includes(collectorParams.modelID)) {
                 collectorParams.modelID = modelID;
+            }
+            const collectorLevelOptions = getCollectorLevelOptions(
+                viewerApi,
+                collectorParams.modelID,
+            );
+            const collectorLevelValues = Object.values(collectorLevelOptions);
+            if (!collectorLevelValues.includes(collectorParams.levelKey)) {
+                collectorParams.levelKey = allCollectorLevelsKey;
+            }
+            const nextCollectorLevelOptionsKey = getControllerOptionsKey(
+                collectorLevelOptions,
+            );
+            if (collectorLevelOptionsKey !== nextCollectorLevelOptionsKey) {
+                collectorLevelOptionsKey = nextCollectorLevelOptionsKey;
+                collectorLevelController?.options(collectorLevelOptions);
+                collectorLevelController?.enable(
+                    modelIDs.length > 0 && collectorLevelValues.length > 1,
+                );
             }
             const modelIDOptionsKey = modelIDs.join(",");
             if (collectorModelIDOptionsKey !== modelIDOptionsKey) {
@@ -447,6 +554,12 @@ export function useViewerApiGui({
             clippingFolder.add(clippingParams, "createClippingRectangle"),
         ).name("createClippingRectangle");
         addController(
+            clippingFolder.add(
+                clippingParams,
+                "createClippingRectangleBySelected",
+            ),
+        ).name("createClippingRectangleBySelected");
+        addController(
             clippingFolder.add(clippingParams, "deleteAllPlanes"),
         ).name("deleteAllPlanes");
 
@@ -465,8 +578,24 @@ export function useViewerApiGui({
                 syncGuiState();
             });
         addController(
-            collectorFolder.add(collectorParams, "ifcClass", ifcClasses),
+            collectorFolder.add(
+                collectorParams,
+                "ifcClass",
+                collectorIfcClasses,
+            ),
         ).name("ifcClass");
+        collectorLevelController = addController(
+            collectorFolder.add(
+                collectorParams,
+                "levelKey",
+                getCollectorLevelOptions(viewerApi, collectorParams.modelID),
+            ),
+        )
+            .name("level")
+            .onChange((value: string) => {
+                collectorParams.levelKey = value;
+                syncGuiState();
+            });
         addController(collectorFolder.add(collectorParams, "collect")).name(
             "collect",
         );

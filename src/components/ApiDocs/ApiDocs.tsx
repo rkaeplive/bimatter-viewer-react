@@ -82,6 +82,20 @@ await viewerRef.current?.converter.convertIfcFileToBmt(files, {
     useMinVersion: true,
 });`;
 
+const converterWorkerCode = `import { convertIfcFilesToBmtInWorker } from "bimatter-viewer-react";
+
+const result = await convertIfcFilesToBmtInWorker(files, {
+    chunk: 500,
+    fileName: "converted-ifc",
+    onProgress: (event) => {
+        console.log(event.phase, Math.round(event.progress * 100));
+    },
+    useIfcSpace: true,
+    useMinVersion: true,
+});
+
+downloadFiles(result.files);`;
+
 const viewerProps = [
     ["modelUrls", "string[]", "Loads BMT or IFC files from public URLs."],
     ["modelSources", "ViewerModelSource[]", "Loads URL or File sources."],
@@ -142,6 +156,27 @@ const propertiesExcelOptions = [
     ["emptyValue", "string", "Placeholder for empty property values."],
 ] as const;
 
+const converterWorkerOptions = [
+    ["chunk", "number", "IFC geometries per streamed parse chunk."],
+    [
+        "maxMeshBytes",
+        "number",
+        "Maximum IFC mesh buffer size before splitting.",
+    ],
+    ["wasmPath", "string", "Custom ifc-parser.wasm URL."],
+    [
+        "onProgress",
+        "(event) => void",
+        "Receives converter worker progress events.",
+    ],
+    [
+        "terminateOnComplete",
+        "boolean",
+        "Terminates the worker after conversion completes.",
+    ],
+    ["worker", "Worker", "Optional custom converter worker instance."],
+] as const;
+
 const selectorCollectorMethods = [
     [
         "from(source)",
@@ -192,6 +227,47 @@ const wallIdsOnLevel = firstLevel
           .toElementIds()
     : [];`;
 
+const selectorCollectorAllClassesCode = `const levelsByModel = viewerRef.current?.properties.getAllLevels(true);
+const firstLevel = levelsByModel?.[0]?.[0];
+
+const allIdsOnLevel = firstLevel
+    ? viewerRef.current?.selector
+          .collector()
+          .ofLevel(firstLevel)
+          // Skip ofType() to keep all IFC classes.
+          .toElementIds()
+    : [];`;
+
+const hotkeyRows = [
+    ["Left Click", "Selection", "Select element."],
+    ["Shift + Left Click", "Selection", "Multi-select element."],
+    ["Ctrl + Left Click", "Selection", "Toggle element selection."],
+    [
+        "Shift + Drag Right",
+        "Selection",
+        "Select elements fully inside the rectangle.",
+    ],
+    [
+        "Shift + Drag Left",
+        "Selection",
+        "Select elements intersected by the rectangle.",
+    ],
+    [
+        "Ctrl + Drag Right",
+        "Selection",
+        "Unselect elements fully inside the rectangle.",
+    ],
+    [
+        "Ctrl + Drag Left",
+        "Selection",
+        "Unselect elements intersected by the rectangle.",
+    ],
+    ["C", "Visibility", "Clear hidden and isolated elements."],
+    ["H", "Visibility", "Hide selected elements."],
+    ["I", "Visibility", "Isolate selected elements."],
+    ["P", "Clipping", "Create clipping plane by model intersection."],
+] as const;
+
 const apiGroups = [
     {
         name: "camera",
@@ -216,8 +292,8 @@ const apiGroups = [
     {
         name: "selector",
         methods: [
-            "setSelected(modelID, ids, reset?)",
-            "addSelected(modelID, ids)",
+            "setSelected(modelID, ids, reset?, setTarget?, fitTarget?)",
+            "addSelected(modelID, ids, setTarget?, fitTarget?)",
             "removeSelected(modelID, ids)",
             "resetSelection(modelID?)",
             "getSelected()",
@@ -241,13 +317,14 @@ const apiGroups = [
         methods: [
             "convertToBmt(options?)",
             "convertIfcFileToBmt(files, options?)",
+            "convertIfcFilesToBmtInWorker(files, options?)",
         ],
     },
     {
         name: "clipping",
         methods: [
             "createPlane()",
-            "createClippingRectangle()",
+            "createClippingRectangle(selected?)",
             "toggle()",
             "setActive(active)",
             "setEdgesActive(active)",
@@ -315,7 +392,8 @@ type ApiSearchItem = {
 type DataTableRow = readonly [string, string, string];
 
 const methodDescriptions: Record<string, string> = {
-    addSelected: "Adds element ids to the current selection.",
+    addSelected:
+        "Adds element ids to the current selection and can move or fit the camera target.",
     cancelDrawing: "Stops the active dimension drawing flow.",
     changeAxes: "Switches dimension drawing axes.",
     clearAllColors: "Removes all temporary element color overrides.",
@@ -323,8 +401,11 @@ const methodDescriptions: Record<string, string> = {
     clearModelColors: "Clears all temporary colors in one model.",
     collector: "Creates a filtered element collector for property queries.",
     convertIfcFileToBmt: "Converts IFC files directly into BMT export files.",
+    convertIfcFilesToBmtInWorker:
+        "Converts IFC files to BMT in a Web Worker using the exported worker helper.",
     convertToBmt: "Exports currently loaded models to BMT.",
-    createClippingRectangle: "Starts rectangular clipping creation.",
+    createClippingRectangle:
+        "Starts rectangular clipping creation. Pass true to build it from selected elements.",
     createPlane: "Creates a clipping plane.",
     delete: "Deletes the active dimension.",
     deleteAll: "Deletes all dimensions.",
@@ -372,7 +453,8 @@ const methodDescriptions: Record<string, string> = {
     setHelpersActive: "Shows or hides clipping helpers.",
     setIfcSpacesVisibility: "Shows or hides IFC space meshes.",
     setPreselectionColor: "Sets hover/preselection color.",
-    setSelected: "Replaces or updates selected element ids.",
+    setSelected:
+        "Replaces or updates selected element ids and can move or fit the camera target.",
     setSelectionColor: "Sets selection highlight color.",
     setShowGridAxes: "Shows or hides model grid axes.",
     setShowNavCube: "Shows or hides the navigation cube.",
@@ -571,7 +653,20 @@ function getApiSearchItems(): ApiSearchItem[] {
         {
             label: "BMT Convertor",
             hash: "#bmt-convertor",
-            keywords: "bmt convertor converter export convert ifc bmt",
+            keywords:
+                "bmt convertor converter export convert ifc bmt worker convertIfcFilesToBmtInWorker",
+        },
+        {
+            label: "convertIfcFilesToBmtInWorker",
+            hash: "#bmt-convertor",
+            keywords:
+                "converter worker ifc bmt convertIfcFilesToBmtInWorker onProgress chunk maxMeshBytes wasmPath",
+        },
+        {
+            label: "Hotkeys",
+            hash: "#hotkeys",
+            keywords:
+                "hotkeys shortcuts keyboard selection visibility clipping shift ctrl drag click hide isolate clipping plane",
         },
         {
             label: "ViewerApi overview",
@@ -683,6 +778,7 @@ function getApiSearchSuggestions(
 function getParameterInfo(
     param: string,
     groupName?: ApiGroupName,
+    methodName?: string,
 ): DataTableRow {
     const name = param.replace("?", "");
     const optional = param.endsWith("?");
@@ -719,6 +815,11 @@ function getParameterInfo(
             "boolean",
             `When true, returns only the first intersection.${optionalSuffix}`,
         ],
+        fitTarget: [
+            param,
+            "boolean",
+            `When true, fits the camera to the selection target.${optionalSuffix}`,
+        ],
         ids: [
             param,
             "number[]",
@@ -733,6 +834,8 @@ function getParameterInfo(
             param,
             groupName === "properties"
                 ? "ViewerPropertiesExcelOptions"
+                : methodName === "convertIfcFilesToBmtInWorker"
+                  ? "BmtConverterWorkerClientOptions"
                 : "ViewerBmtConverterOptions",
             `Export options.${optionalSuffix}`,
         ],
@@ -750,6 +853,16 @@ function getParameterInfo(
             param,
             "number",
             `Dimension endpoint visual scale factor.${optionalSuffix}`,
+        ],
+        selected: [
+            param,
+            "boolean",
+            `When true, creates the tool from selected elements.${optionalSuffix}`,
+        ],
+        setTarget: [
+            param,
+            "boolean",
+            `When true, moves the camera target to the selection.${optionalSuffix}`,
         ],
         show: [
             param,
@@ -785,8 +898,10 @@ function getParameterInfo(
 }
 
 function getMethodParameterRows(signature: string, groupName: ApiGroupName) {
+    const methodName = getMethodName(signature);
+
     return getSignatureParams(signature).map((param) =>
-        getParameterInfo(param, groupName),
+        getParameterInfo(param, groupName, methodName),
     );
 }
 
@@ -799,6 +914,7 @@ function getSampleArg(param: string) {
     if (normalized === "enabled") return "false";
     if (normalized === "files") return "files";
     if (normalized === "first") return "true";
+    if (normalized === "fittarget") return "true";
     if (normalized === "ids") return "[1, 2, 3]";
     if (normalized === "modelid") return "0";
     if (normalized === "options") {
@@ -807,6 +923,8 @@ function getSampleArg(param: string) {
     if (normalized === "recursive") return "true";
     if (normalized === "reset") return "true";
     if (normalized === "scale") return "0.015";
+    if (normalized === "selected") return "true";
+    if (normalized === "settarget") return "true";
     if (normalized === "show") return "true";
     if (normalized === "side") return '"left"';
     if (normalized === "unit") return '"mm"';
@@ -835,6 +953,13 @@ function getMethodExample(groupName: ApiGroupName, signature: string) {
 });`;
     }
 
+    if (
+        groupName === "converter" &&
+        methodName === "convertIfcFilesToBmtInWorker"
+    ) {
+        return converterWorkerCode;
+    }
+
     if (groupName === "properties") {
         if (methodName === "exportExcel") {
             return `viewerRef.current?.properties.exportExcel(0, {
@@ -848,6 +973,31 @@ function getMethodExample(groupName: ApiGroupName, signature: string) {
     emptyValue: "-",
 });`;
         }
+    }
+
+    if (groupName === "selector") {
+        if (methodName === "setSelected") {
+            return `viewerRef.current?.selector.setSelected(
+    0,
+    [1, 2, 3],
+    true,
+    true,
+    true,
+);`;
+        }
+
+        if (methodName === "addSelected") {
+            return `viewerRef.current?.selector.addSelected(
+    0,
+    [4, 5],
+    true,
+    false,
+);`;
+        }
+    }
+
+    if (groupName === "clipping" && methodName === "createClippingRectangle") {
+        return `viewerRef.current?.clipping.createClippingRectangle(true);`;
     }
 
     return `viewerRef.current?.${groupName}.${methodName}(${params});`;
@@ -865,10 +1015,14 @@ function ApiGroupExtra({ groupName }: { groupName: ApiGroupName }) {
                 </h2>
                 <p>
                     <code>selector.collector()</code> returns a chainable
-                    collector. In 0.5.9 it can filter by{" "}
-                    <code>ViewerModelLevel</code> from the properties API.
+                    collector. It can filter by{" "}
+                    <code>ViewerModelLevel</code> from the properties API; omit{" "}
+                    <code>ofType()</code> when you want all classes.
+                    The demo GUI's <code>allClasses</code> option uses this
+                    same pattern.
                 </p>
                 <CodeBlock>{selectorCollectorCode}</CodeBlock>
+                <CodeBlock>{selectorCollectorAllClassesCode}</CodeBlock>
                 <DataTable rows={selectorCollectorMethods} />
             </section>
         );
@@ -925,6 +1079,13 @@ function ApiGroupDetail({ group }: { group: ApiGroup }) {
                             <CodeBlock>
                                 {getMethodExample(group.name, signature)}
                             </CodeBlock>
+                            {group.name === "converter" &&
+                                methodName ===
+                                    "convertIfcFilesToBmtInWorker" && (
+                                    <DataTable
+                                        rows={converterWorkerOptions}
+                                    />
+                                )}
                             {parameterRows.length > 0 && (
                                 <DataTable rows={parameterRows} />
                             )}
@@ -1145,6 +1306,7 @@ export function ApiDocs() {
                     <a href="#loader">Loader API</a>
                     <a href="#worker">Worker streaming</a>
                     <a href="#bmt-convertor">BMT Convertor</a>
+                    <a href="#hotkeys">Hotkeys</a>
                     <details className="docs-sidebar-group" open>
                         <summary>ViewerApi</summary>
                         <a href="#api">Overview</a>
@@ -1212,9 +1374,29 @@ export function ApiDocs() {
                                     Export loaded models to BMT or convert IFC
                                     files directly. With <code>activeView</code>
                                     , hidden and isolated elements are
-                                    respected.
+                                    respected. Use{" "}
+                                    <code>
+                                        convertIfcFilesToBmtInWorker()
+                                    </code>{" "}
+                                    for IFC-to-BMT conversion outside the main
+                                    thread.
                                 </p>
                                 <CodeBlock>{converterCode}</CodeBlock>
+                                <CodeBlock>{converterWorkerCode}</CodeBlock>
+                                <DataTable rows={converterWorkerOptions} />
+                            </section>
+
+                            <section className="docs-section" id="hotkeys">
+                                <h2>Hotkeys</h2>
+                                <p>
+                                    Built-in viewer shortcuts can be disabled
+                                    with{" "}
+                                    <code>
+                                        utils.setDefaultHotkeysEnabled(false)
+                                    </code>
+                                    .
+                                </p>
+                                <DataTable rows={hotkeyRows} />
                             </section>
 
                             <section className="docs-section" id="api">

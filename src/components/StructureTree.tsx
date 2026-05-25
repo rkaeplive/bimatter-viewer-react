@@ -5,6 +5,7 @@ import type {
     BmtModelStructureNode,
     BmtPropertyRecord,
     BmtPropertyValue,
+    ViewerSelection,
 } from "bimatter-viewer-react";
 
 export type SelectedElement = {
@@ -12,10 +13,19 @@ export type SelectedElement = {
     modelID: number;
 };
 
+export type StructureSelectOptions = {
+    add?: boolean;
+    fitTarget?: boolean;
+};
+
 type StructureTreeProps = {
     modelsData?: ViewerLoadedModels;
-    onSelectElements?: (modelID: number, elementIDs: number[]) => void;
-    selectedElement?: SelectedElement | null;
+    onSelectElements?: (
+        modelID: number,
+        elementIDs: number[],
+        options?: StructureSelectOptions,
+    ) => void;
+    selected?: ViewerSelection;
     showIfcSpaces?: boolean;
 };
 
@@ -32,9 +42,13 @@ type TreeNodeProps = {
     modelID: number;
     node: StructureNode;
     nodeKey: string;
-    onSelectElements?: (modelID: number, elementIDs: number[]) => void;
+    onSelectElements?: (
+        modelID: number,
+        elementIDs: number[],
+        options?: StructureSelectOptions,
+    ) => void;
     onToggle: (nodeKey: string) => void;
-    selectedElement?: SelectedElement | null;
+    selectedIDs?: ReadonlySet<number>;
 };
 
 function isRecord(value: unknown): value is BmtPropertyRecord {
@@ -155,6 +169,20 @@ function getSelectableElementIDs(node: StructureNode): number[] {
     return children.flatMap(getSelectableElementIDs);
 }
 
+function hasSelectedElementID(
+    node: StructureNode,
+    selectedIDs?: ReadonlySet<number>,
+): boolean {
+    if (!selectedIDs?.size) return false;
+
+    const id = getNodeID(node);
+    if (id !== null && selectedIDs.has(id)) return true;
+
+    return getNodeChildren(node).some((child) =>
+        hasSelectedElementID(child, selectedIDs),
+    );
+}
+
 function getNodeLabel(node: StructureNode) {
     const props = isRecord(node.props) ? node.props : {};
     const rawName = node.name ?? node.Name ?? props.name ?? props.Name;
@@ -216,15 +244,18 @@ function TreeNode({
     nodeKey,
     onSelectElements,
     onToggle,
-    selectedElement,
+    selectedIDs,
 }: TreeNodeProps) {
     const children = getNodeChildren(node);
     const id = getNodeID(node);
     const isExpanded = expanded.has(nodeKey);
-    const isSelected =
-        id !== null &&
-        selectedElement?.modelID === modelID &&
-        selectedElement.elementID === id;
+    const isSelected = hasSelectedElementID(node, selectedIDs);
+    const selectNode = (options?: StructureSelectOptions) => {
+        const elementIDs = getSelectableElementIDs(node);
+        if (elementIDs.length) {
+            onSelectElements?.(modelID, elementIDs, options);
+        }
+    };
 
     return (
         <li className="structure-tree-node">
@@ -247,11 +278,11 @@ function TreeNode({
                             : "structure-tree-label"
                     }
                     disabled={id === null && !children.length}
-                    onClick={() => {
-                        const elementIDs = getSelectableElementIDs(node);
-                        if (elementIDs.length) {
-                            onSelectElements?.(modelID, elementIDs);
-                        }
+                    onClick={(event) => {
+                        selectNode({ add: event.shiftKey });
+                    }}
+                    onDoubleClick={() => {
+                        selectNode({ fitTarget: true });
                     }}
                     title={
                         children.length
@@ -278,7 +309,7 @@ function TreeNode({
                             nodeKey={`${nodeKey}_${index}`}
                             onSelectElements={onSelectElements}
                             onToggle={onToggle}
-                            selectedElement={selectedElement}
+                            selectedIDs={selectedIDs}
                         />
                     ))}
                 </ul>
@@ -290,7 +321,7 @@ function TreeNode({
 export function StructureTree({
     modelsData,
     onSelectElements,
-    selectedElement,
+    selected,
     showIfcSpaces = true,
 }: StructureTreeProps) {
     const [expanded, setExpanded] = useState(() => new Set<string>());
@@ -323,6 +354,7 @@ export function StructureTree({
                 {modelEntries.map(([modelID, model]) => {
                     const numericModelID = Number(modelID);
                     const rootKey = `model_${modelID}`;
+                    const selectedIDs = new Set(selected?.[numericModelID] ?? []);
 
                     return (
                         <section className="structure-model" key={modelID}>
@@ -342,7 +374,7 @@ export function StructureTree({
                                     nodeKey={rootKey}
                                     onSelectElements={onSelectElements}
                                     onToggle={toggleNode}
-                                    selectedElement={selectedElement}
+                                    selectedIDs={selectedIDs}
                                 />
                             </ul>
                         </section>

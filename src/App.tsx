@@ -5,10 +5,12 @@ import { ElementProperties } from "./components/ElementProperties";
 import {
     StructureTree,
     type SelectedElement,
+    type StructureSelectOptions,
 } from "./components/StructureTree";
 import { ApiDocs } from "./components/ApiDocs/ApiDocs";
 import {
     bmtConverter,
+    convertIfcFilesToBmtInWorker,
     loader,
     Viewer,
     type ViewerApi,
@@ -250,9 +252,32 @@ function ViewerDemo() {
     useEffect(() => {
         setViewerApi(viewerRef.current);
     }, []);
-    const selectElements = (modelID: number, elementIDs: number[]) => {
+    const selectElements = (
+        modelID: number,
+        elementIDs: number[],
+        options: StructureSelectOptions = {},
+    ) => {
+        const uniqueElementIDs = Array.from(new Set(elementIDs));
+        const selector = viewerRef.current?.selector;
+
+        if (selector) {
+            if (options.add) {
+                selector.addSelected(modelID, uniqueElementIDs);
+                return;
+            }
+
+            selector.setSelected(
+                modelID,
+                uniqueElementIDs,
+                true,
+                true,
+                Boolean(options.fitTarget),
+            );
+            return;
+        }
+
         setSelected({
-            [modelID]: Array.from(new Set(elementIDs)),
+            [modelID]: uniqueElementIDs,
         });
     };
     const exportBmt = () => {
@@ -269,20 +294,39 @@ function ViewerDemo() {
 
     const onExportFilesSelected = async (files: FileList | null) => {
         if (!files?.length) return;
+        const selectedFiles = Array.from(files);
 
-        const converter = viewerRef.current?.converter ?? bmtConverter;
-        const result = await converter.convertIfcFileToBmt(Array.from(files), {
-            fileName: "converted-ifc",
-            useIfcSpace,
-            useMinVersion: exportUseMinVersion,
-        });
-
-        if (result) {
-            downloadFiles(result.files);
+        setWorkerProgress(null);
+        if (useWorker) {
+            setWorkerLoading(true);
         }
 
-        if (exportFileInputRef.current) {
-            exportFileInputRef.current.value = "";
+        try {
+            const result = useWorker
+                ? await convertIfcFilesToBmtInWorker(selectedFiles, {
+                      fileName: "converted-ifc",
+                      onProgress: setWorkerProgress,
+                      useIfcSpace,
+                      useMinVersion: exportUseMinVersion,
+                  })
+                : await (viewerRef.current?.converter ?? bmtConverter)
+                      .convertIfcFileToBmt(selectedFiles, {
+                          fileName: "converted-ifc",
+                          useIfcSpace,
+                          useMinVersion: exportUseMinVersion,
+                      });
+
+            if (result) {
+                downloadFiles(result.files);
+            }
+        } finally {
+            if (useWorker) {
+                setWorkerLoading(false);
+            }
+
+            if (exportFileInputRef.current) {
+                exportFileInputRef.current.value = "";
+            }
         }
     };
     const exportModelsExcel = () => {
@@ -412,6 +456,7 @@ function ViewerDemo() {
                 <div className="app-toolbar-group">
                     <span className="app-toolbar-title">Export</span>
                     <button
+                        disabled={workerLoading}
                         onClick={() => exportFileInputRef.current?.click()}
                         type="button"
                     >
@@ -491,7 +536,7 @@ function ViewerDemo() {
                     <StructureTree
                         modelsData={modelsData}
                         onSelectElements={selectElements}
-                        selectedElement={selectionInfo.selectedElement}
+                        selected={selected}
                         showIfcSpaces={showSpaces}
                     />
                 ) : (
