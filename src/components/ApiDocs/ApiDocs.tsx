@@ -96,6 +96,27 @@ const result = await convertIfcFilesToBmtInWorker(files, {
 
 downloadFiles(result.files);`;
 
+const colorRebuildByPropertiesCode = `const viewer = viewerRef.current;
+
+viewer?.colors.rebuildModelByColors(
+    0,
+    {
+        "#ff3355": viewer.selector
+            .collector()
+            .ofModel(0)
+            .Where(
+                (element) =>
+                    viewer.properties.getParamValueByName(
+                        element.props,
+                        "System Name",
+                        "Mechanical",
+                    ) === "Mechanical Supply Air 2",
+            )
+            .toElementsIds(),
+    },
+    "#d1d5db",
+);`;
+
 const viewerProps = [
     ["modelUrls", "string[]", "Loads BMT or IFC files from public URLs."],
     ["modelSources", "ViewerModelSource[]", "Loads URL or File sources."],
@@ -307,6 +328,8 @@ const apiGroups = [
         name: "colors",
         methods: [
             "setColor(modelID, ids, color)",
+            "rebuildByColors(colorsByModel, defaultColor?)",
+            "rebuildModelByColors(modelID, colorsByIds, defaultColor?)",
             "clearColor(modelID, ids)",
             "clearModelColors(modelID)",
             "clearAllColors()",
@@ -356,6 +379,9 @@ const apiGroups = [
             "getModelStructure()",
             "getAllLevels(recursive?)",
             "getAllModelLevels(modelID, recursive?)",
+            "getParamsByElement(modelID, elementID)",
+            "getParamValueByName(elementParams, paramName, setName?)",
+            "getParamValueByElement(modelID, elementID, paramName, setName?)",
             "exportExcel(modelID, options?)",
             "exportAllExcel(options?)",
         ],
@@ -426,6 +452,11 @@ const methodDescriptions: Record<string, string> = {
     getIntersection: "Returns raycast intersections under the pointer.",
     getModelProps: "Returns loaded model property dictionaries.",
     getModelStructure: "Returns loaded model structure trees.",
+    getParamsByElement: "Returns property data for one model element.",
+    getParamValueByElement:
+        "Returns one property value for an element by parameter and optional property set name.",
+    getParamValueByName:
+        "Returns one property value from element props by parameter and optional property set name.",
     getPlanes: "Returns current clipping planes.",
     getPreselectionColor: "Returns hover/preselection color.",
     getSelected: "Returns selected element ids grouped by model id.",
@@ -443,6 +474,10 @@ const methodDescriptions: Record<string, string> = {
     removeSelected: "Removes element ids from the current selection.",
     resetIsolation: "Clears hide and isolate state.",
     resetSelection: "Clears selection globally or for one model.",
+    rebuildByColors:
+        "Rebuilds color buffers for several models from color-to-element-id mappings.",
+    rebuildModelByColors:
+        "Rebuilds one model color buffer from color-to-element-id mappings.",
     setActive: "Enables or disables the tool.",
     setColor: "Sets color for dimensions or model elements.",
     setDefaultHotkeysEnabled: "Enables or disables built-in hotkeys.",
@@ -795,10 +830,35 @@ function getParameterInfo(
             "ColorRepresentation",
             `CSS color string, number or Three.js color value.${optionalSuffix}`,
         ],
+        colorsByIds: [
+            param,
+            "ViewerModelColorConfig",
+            `Map of color values to element id arrays for one model.${optionalSuffix}`,
+        ],
+        colorsByModel: [
+            param,
+            "ViewerColorConfigByModel",
+            `Map of model ids to per-model color configs.${optionalSuffix}`,
+        ],
+        defaultColor: [
+            param,
+            "ColorRepresentation",
+            `Fallback color for elements not matched by the color map.${optionalSuffix}`,
+        ],
         distance: [
             param,
             "number",
             `Snap distance in model units.${optionalSuffix}`,
+        ],
+        elementID: [
+            param,
+            "number",
+            `Element id inside the target model.${optionalSuffix}`,
+        ],
+        elementParams: [
+            param,
+            "BmtElementProps | null | undefined",
+            `Property object for one element.${optionalSuffix}`,
         ],
         enabled: [
             param,
@@ -839,6 +899,11 @@ function getParameterInfo(
                 : "ViewerBmtConverterOptions",
             `Export options.${optionalSuffix}`,
         ],
+        paramName: [
+            param,
+            "string",
+            `Property parameter name to read.${optionalSuffix}`,
+        ],
         recursive: [
             param,
             "boolean",
@@ -863,6 +928,11 @@ function getParameterInfo(
             param,
             "boolean",
             `When true, moves the camera target to the selection.${optionalSuffix}`,
+        ],
+        setName: [
+            param,
+            "string",
+            `Optional property set name used to narrow the lookup.${optionalSuffix}`,
         ],
         show: [
             param,
@@ -910,7 +980,14 @@ function getSampleArg(param: string) {
 
     if (normalized === "active") return "true";
     if (normalized === "color") return '"#ff3355"';
+    if (normalized === "colorsbyids") return '{ "#ff3355": [1, 2, 3] }';
+    if (normalized === "colorsbymodel") {
+        return '{ 0: { "#ff3355": [1, 2, 3] } }';
+    }
+    if (normalized === "defaultcolor") return '"#d1d5db"';
     if (normalized === "distance") return "1";
+    if (normalized === "elementid") return "1";
+    if (normalized === "elementparams") return "element.props";
     if (normalized === "enabled") return "false";
     if (normalized === "files") return "files";
     if (normalized === "first") return "true";
@@ -920,10 +997,12 @@ function getSampleArg(param: string) {
     if (normalized === "options") {
         return "{ activeView: true, useMinVersion: true }";
     }
+    if (normalized === "paramname") return '"System Name"';
     if (normalized === "recursive") return "true";
     if (normalized === "reset") return "true";
     if (normalized === "scale") return "0.015";
     if (normalized === "selected") return "true";
+    if (normalized === "setname") return '"Mechanical"';
     if (normalized === "settarget") return "true";
     if (normalized === "show") return "true";
     if (normalized === "side") return '"left"';
@@ -960,7 +1039,48 @@ function getMethodExample(groupName: ApiGroupName, signature: string) {
         return converterWorkerCode;
     }
 
+    if (groupName === "colors") {
+        if (methodName === "rebuildByColors") {
+            return `viewerRef.current?.colors.rebuildByColors(
+    {
+        0: {
+            "#ff3355": [1, 2, 3],
+            "#22c55e": [4, 5],
+        },
+    },
+    "#d1d5db",
+);`;
+        }
+
+        if (methodName === "rebuildModelByColors") {
+            return colorRebuildByPropertiesCode;
+        }
+    }
+
     if (groupName === "properties") {
+        if (methodName === "getParamsByElement") {
+            return `const params = viewerRef.current?.properties.getParamsByElement(0, 1);`;
+        }
+
+        if (methodName === "getParamValueByName") {
+            return `const params = viewerRef.current?.properties.getParamsByElement(0, 1);
+
+const systemName = viewerRef.current?.properties.getParamValueByName(
+    params,
+    "System Name",
+    "Mechanical",
+);`;
+        }
+
+        if (methodName === "getParamValueByElement") {
+            return `const systemName = viewerRef.current?.properties.getParamValueByElement(
+    0,
+    1,
+    "System Name",
+    "Mechanical",
+);`;
+        }
+
         if (methodName === "exportExcel") {
             return `viewerRef.current?.properties.exportExcel(0, {
     fileName: "model-properties",
