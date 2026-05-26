@@ -309,12 +309,13 @@ function ViewerDemo() {
                       useIfcSpace,
                       useMinVersion: exportUseMinVersion,
                   })
-                : await (viewerRef.current?.converter ?? bmtConverter)
-                      .convertIfcFileToBmt(selectedFiles, {
-                          fileName: "converted-ifc",
-                          useIfcSpace,
-                          useMinVersion: exportUseMinVersion,
-                      });
+                : await (
+                      viewerRef.current?.converter ?? bmtConverter
+                  ).convertIfcFileToBmt(selectedFiles, {
+                      fileName: "converted-ifc",
+                      useIfcSpace,
+                      useMinVersion: exportUseMinVersion,
+                  });
 
             if (result) {
                 downloadFiles(result.files);
@@ -460,7 +461,7 @@ function ViewerDemo() {
                         onClick={() => exportFileInputRef.current?.click()}
                         type="button"
                     >
-                        Export file
+                        Convert files to BMT
                     </button>
                     <button
                         disabled={!viewerApi || !modelsData}
