@@ -27,9 +27,7 @@ function App() {
 
     useEffect(() => {
         loader
-            .loadModel(["/models/architecture.bmt", "/models/structure.ifc"], {
-                useIfcSpace: true,
-            })
+            .loadModel(["/models/architecture.bmt", "/models/structure.ifc"])
             .then(setModelsData);
     }, []);
 
@@ -39,7 +37,6 @@ function App() {
 const workerCode = `await loader.loadModel(["/models/model.ifc"], {
     chunk: 500,
     collectWorkerChunks: false,
-    useIfcSpace: true,
     useWorker: true,
     onChunk: (chunk) => {
         // Add chunk.geometry to your progressive render state.
@@ -87,7 +84,6 @@ await viewerRef.current?.converter.convertIfcFileToBmt(files, {
     fileName: "converted-ifc",
     useIfcColors: true,
     useIfcElementAssembly: true,
-    useIfcSpace: true,
     useMinVersion: true,
 });`;
 
@@ -99,7 +95,6 @@ const result = await convertIfcFilesToBmtInWorker(files, {
     onProgress: (event) => {
         console.log(event.phase, Math.round(event.progress * 100));
     },
-    useIfcSpace: true,
     useMinVersion: true,
 });
 
@@ -180,7 +175,11 @@ const loaderOptions = [
         "Keep streamed chunks in the worker client result.",
     ],
     ["onProgress", "(event) => void", "Receives worker progress events."],
-    ["useIfcSpace", "boolean", "Include IFCSPACE geometry."],
+    [
+        "useIfcSpace",
+        "boolean",
+        "IFCSPACE geometry is loaded by default; pass false to skip it.",
+    ],
     [
         "materialMode",
         "ViewerMaterialMode",
@@ -334,6 +333,8 @@ const apiGroups = [
             "isolateSelected()",
             "resetIsolation()",
             "getAllIds()",
+            "getModelGeometry(modelID)",
+            "getModelsGeometry()",
             "setIfcSpacesVisibility(visible)",
             "getIfcSpacesVisibility()",
             "toggleIIfcSpacesVisibility()",
@@ -479,7 +480,10 @@ const methodDescriptions: Record<string, string> = {
     getHelpersActive: "Returns clipping helper visibility.",
     getIfcSpacesVisibility: "Returns IFC space mesh visibility.",
     getIntersection: "Returns raycast intersections under the pointer.",
+    getModelGeometry:
+        "Returns the Three.js group for one loaded model, or null if it is not found.",
     getModelProps: "Returns loaded model property dictionaries.",
+    getModelsGeometry: "Returns Three.js groups for all loaded models.",
     getModelStructure: "Returns loaded model structure trees.",
     getParamsByElement: "Returns property data for one model element.",
     getParamValueByElement:
@@ -1062,7 +1066,6 @@ function getMethodExample(groupName: ApiGroupName, signature: string) {
     if (groupName === "converter" && methodName === "convertIfcFileToBmt") {
         return `await viewerRef.current?.converter.convertIfcFileToBmt(files, {
     fileName: "converted-ifc",
-    useIfcSpace: true,
     useMinVersion: true,
 });`;
     }
@@ -1072,6 +1075,24 @@ function getMethodExample(groupName: ApiGroupName, signature: string) {
         methodName === "convertIfcFilesToBmtInWorker"
     ) {
         return converterWorkerCode;
+    }
+
+    if (groupName === "geometryUtils") {
+        if (methodName === "getModelGeometry") {
+            return `const modelGroup = viewerRef.current?.geometryUtils.getModelGeometry(0);
+
+modelGroup?.traverse((object) => {
+    console.log(object.name, object.userData);
+});`;
+        }
+
+        if (methodName === "getModelsGeometry") {
+            return `const modelGroups = viewerRef.current?.geometryUtils.getModelsGeometry() ?? [];
+
+modelGroups.forEach((group) => {
+    console.log(group.userData.modelID, group.children.length);
+});`;
+        }
     }
 
     if (groupName === "colors") {

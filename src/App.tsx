@@ -123,7 +123,7 @@ function ViewerDemo() {
     const [viewerApi, setViewerApi] = useState<ViewerApi | null>(null);
     const [exportActiveView, setExportActiveView] = useState(false);
     const [exportUseMinVersion, setExportUseMinVersion] = useState(false);
-    const [showSpaces, setShowSpaces] = useState(true);
+    const [showSpaces, setShowSpaces] = useState(false);
     const [useIfcSpace, setUseIfcSpace] = useState(true);
     const [useWorker, setUseWorker] = useState(false);
     const [performanceMode, setPerformanceMode] = useState(false);
@@ -150,6 +150,11 @@ function ViewerDemo() {
         useDoubleSideMaterial,
         useIfcSpace,
     });
+
+    useEffect(() => {
+        viewerApi?.geometryUtils.setIfcSpacesVisibility(showSpaces);
+    }, [modelsData, showSpaces, viewerApi]);
+
     const setLoadedModels = (models: ViewerLoadedModels) => {
         setSelected({});
         setModelsData((currentModels) => ({
@@ -160,6 +165,7 @@ function ViewerDemo() {
 
     const getModelRenderOptions = () => ({
         materialMode: materialMode,
+        useIfcSpace,
         useDoubleSideMaterial,
     });
 
@@ -255,13 +261,7 @@ function ViewerDemo() {
     const onFilesSelected = async (files: FileList | null) => {
         if (!files?.length) return;
         try {
-            await loadModels(
-                Array.from(files),
-                {
-                    useIfcSpace: showSpaces,
-                },
-                false,
-            );
+            await loadModels(Array.from(files), {}, false);
         } finally {
             if (fileInputRef.current) {
                 fileInputRef.current.value = "";
@@ -325,14 +325,12 @@ function ViewerDemo() {
                 ? await convertIfcFilesToBmtInWorker(selectedFiles, {
                       fileName: "converted-ifc",
                       onProgress: setWorkerProgress,
-                      useIfcSpace,
                       useMinVersion: exportUseMinVersion,
                   })
                 : await (
                       viewerRef.current?.converter ?? bmtConverter
                   ).convertIfcFileToBmt(selectedFiles, {
                       fileName: "converted-ifc",
-                      useIfcSpace,
                       useMinVersion: exportUseMinVersion,
                   });
 
@@ -421,7 +419,6 @@ function ViewerDemo() {
                             ],
                             {
                                 ...(useWorker ? { chunk: 500 } : {}),
-                                useIfcSpace: showSpaces,
                             },
                             true,
                             true,

@@ -266,7 +266,7 @@ export function useViewerApiGui({
     onUseIfcSpaceChange,
     performanceMode = false,
     selected,
-    showIfcSpaces = true,
+    showIfcSpaces = false,
     useDoubleSideMaterial = false,
     useIfcSpace = true,
 }: ViewerApiGuiOptions) {
@@ -470,6 +470,7 @@ export function useViewerApiGui({
         let collectorLevelController: Controller | null = null;
         let colorizeModelIDController: Controller | null = null;
         let materialModeController: Controller | null = null;
+        let useIfcSpaceController: Controller | null = null;
         let useDoubleSideMaterialController: Controller | null = null;
 
         function syncGuiState() {
@@ -532,18 +533,23 @@ export function useViewerApiGui({
             utilsParams.showNavCube = viewerApi.utils.getShowNavCube();
             utilsParams.showStats = viewerApi.utils.getShowStats();
 
-            spacesParams.showIfcSpaces =
-                viewerApi.geometryUtils.getIfcSpacesVisibility();
+            spacesParams.showIfcSpaces = showIfcSpacesRef.current;
             spacesParams.useIfcSpace = useIfcSpaceRef.current;
-            if (showIfcSpacesRef.current !== spacesParams.showIfcSpaces) {
-                showIfcSpacesRef.current = spacesParams.showIfcSpaces;
-                onShowIfcSpacesChange?.(spacesParams.showIfcSpaces);
+
+            if (
+                viewerApi.geometryUtils.getIfcSpacesVisibility() !==
+                spacesParams.showIfcSpaces
+            ) {
+                viewerApi.geometryUtils.setIfcSpacesVisibility(
+                    spacesParams.showIfcSpaces,
+                );
             }
             performanceParams.materialMode = materialModeRef.current;
             performanceParams.performanceMode = performanceModeRef.current;
             performanceParams.useDoubleSideMaterial =
                 useDoubleSideMaterialRef.current;
             materialModeController?.enable(!hasModels);
+            useIfcSpaceController?.enable(!hasModels);
             useDoubleSideMaterialController?.enable(!hasModels);
 
             syncControllers();
@@ -807,9 +813,16 @@ export function useViewerApiGui({
 
         const spaceFolder = gui.addFolder("spaces");
         spaceFolder.close();
-        addController(spaceFolder.add(spacesParams, "useIfcSpace"))
+        useIfcSpaceController = addController(
+            spaceFolder.add(spacesParams, "useIfcSpace"),
+        )
             .name("useIfcSpace")
             .onChange((value: boolean) => {
+                if (hasLoadedModels(modelsDataRef.current)) {
+                    syncGuiState();
+                    return;
+                }
+
                 useIfcSpaceRef.current = value;
                 onUseIfcSpaceChange?.(value);
                 syncGuiState();
