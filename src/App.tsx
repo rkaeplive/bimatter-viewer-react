@@ -17,6 +17,7 @@ import {
     type ViewerLoadedModels,
     type ViewerLoaderWorkerChunk,
     type ViewerLoadModelOptions,
+    type ViewerMaterialMode,
     type ViewerModelSource,
     type ViewerSelection,
     type WorkerProgressEvent,
@@ -125,6 +126,10 @@ function ViewerDemo() {
     const [showSpaces, setShowSpaces] = useState(true);
     const [useIfcSpace, setUseIfcSpace] = useState(true);
     const [useWorker, setUseWorker] = useState(false);
+    const [performanceMode, setPerformanceMode] = useState(false);
+    const [materialMode, setMaterialMode] =
+        useState<ViewerMaterialMode>("quality");
+    const [useDoubleSideMaterial, setUseDoubleSideMaterial] = useState(false);
     const [workerLoading, setWorkerLoading] = useState(false);
     const [workerProgress, setWorkerProgress] =
         useState<WorkerProgressEvent | null>(null);
@@ -132,11 +137,17 @@ function ViewerDemo() {
     const selectionInfo = useMemo(() => getSelectionInfo(selected), [selected]);
     useViewerApiGui({
         api: viewerApi,
+        materialMode,
         modelsData,
+        onMaterialModeChange: setMaterialMode,
+        onPerformanceModeChange: setPerformanceMode,
         onShowIfcSpacesChange: setShowSpaces,
+        onUseDoubleSideMaterialChange: setUseDoubleSideMaterial,
         onUseIfcSpaceChange: setUseIfcSpace,
+        performanceMode,
         selected,
         showIfcSpaces: showSpaces,
+        useDoubleSideMaterial,
         useIfcSpace,
     });
     const setLoadedModels = (models: ViewerLoadedModels) => {
@@ -147,12 +158,18 @@ function ViewerDemo() {
         }));
     };
 
+    const getModelRenderOptions = () => ({
+        materialMode: materialMode,
+        useDoubleSideMaterial,
+    });
+
     const addWorkerChunk = (chunk: ViewerLoaderWorkerChunk) => {
         setModelsData((currentModels) => {
             const model = currentModels?.[chunk.modelID] ?? {
                 data: {},
                 name: chunk.modelName,
                 props: {},
+                renderSettings: getModelRenderOptions(),
                 structure: {},
             };
 
@@ -192,6 +209,7 @@ function ViewerDemo() {
             try {
                 const models = await loader.loadModel(sources, {
                     ...options,
+                    ...getModelRenderOptions(),
                     collectWorkerChunks: false,
                     onChunk: addWorkerChunk,
                     onProgress: setWorkerProgress,
@@ -223,6 +241,7 @@ function ViewerDemo() {
         try {
             const models = await loader.loadModel(sources, {
                 ...options,
+                ...getModelRenderOptions(),
                 useWorker: false,
             });
             setLoadedModels(models);
@@ -341,7 +360,6 @@ function ViewerDemo() {
     if (loading) {
         return <BimatterLoader loading isTransparent></BimatterLoader>;
     }
-
     return (
         <div className="app">
             <div className="app-toolbar">
@@ -549,12 +567,14 @@ function ViewerDemo() {
                     )}
                     <Viewer
                         ref={viewerRef}
+                        materialMode={materialMode}
                         modelsData={modelsData}
                         onReady={(api) => {
                             setViewerApi(api);
                             api.camera.fitCamera();
                         }}
                         onSelectedChange={setSelected}
+                        performanceMode={performanceMode}
                         selected={selected}
                         showStats
                     />

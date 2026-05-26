@@ -4,17 +4,24 @@ import type {
     IfcClass,
     ViewerApi,
     ViewerLoadedModels,
+    ViewerMaterialMode,
     ViewerModelLevel,
     ViewerSelection,
 } from "bimatter-viewer-react";
 
 type ViewerApiGuiOptions = {
     api: ViewerApi | null;
+    materialMode?: ViewerMaterialMode;
     modelsData?: ViewerLoadedModels;
+    onMaterialModeChange?: (materialMode: ViewerMaterialMode) => void;
+    onPerformanceModeChange?: (performanceMode: boolean) => void;
     onShowIfcSpacesChange?: (showIfcSpaces: boolean) => void;
+    onUseDoubleSideMaterialChange?: (useDoubleSideMaterial: boolean) => void;
     onUseIfcSpaceChange?: (useIfcSpace: boolean) => void;
+    performanceMode?: boolean;
     selected: ViewerSelection;
     showIfcSpaces?: boolean;
+    useDoubleSideMaterial?: boolean;
     useIfcSpace?: boolean;
 };
 
@@ -60,6 +67,12 @@ type UtilsParams = {
 type SpacesParams = {
     showIfcSpaces: boolean;
     useIfcSpace: boolean;
+};
+
+type PerformanceParams = {
+    materialMode: ViewerMaterialMode;
+    performanceMode: boolean;
+    useDoubleSideMaterial: boolean;
 };
 
 type DimensionsParams = {
@@ -166,6 +179,10 @@ function getModelIDs(modelsData?: ViewerLoadedModels) {
         .sort((a, b) => a - b);
 }
 
+function hasLoadedModels(modelsData?: ViewerLoadedModels) {
+    return getModelIDs(modelsData).length > 0;
+}
+
 function getModelIDOptions(modelsData?: ViewerLoadedModels) {
     const modelIDs = getModelIDs(modelsData);
     if (!modelIDs.length) return { "No models": 0 };
@@ -240,16 +257,25 @@ function getCollectorLevelByKey(api: ViewerApi, levelKey: string) {
 
 export function useViewerApiGui({
     api,
+    materialMode = "quality",
     modelsData,
+    onMaterialModeChange,
+    onPerformanceModeChange,
     onShowIfcSpacesChange,
+    onUseDoubleSideMaterialChange,
     onUseIfcSpaceChange,
+    performanceMode = false,
     selected,
     showIfcSpaces = true,
+    useDoubleSideMaterial = false,
     useIfcSpace = true,
 }: ViewerApiGuiOptions) {
     const selectedRef = useRef(selected);
     const modelsDataRef = useRef(modelsData);
+    const materialModeRef = useRef(materialMode);
+    const performanceModeRef = useRef(performanceMode);
     const showIfcSpacesRef = useRef(showIfcSpaces);
+    const useDoubleSideMaterialRef = useRef(useDoubleSideMaterial);
     const useIfcSpaceRef = useRef(useIfcSpace);
     const syncGuiRef = useRef<(() => void) | null>(null);
 
@@ -264,9 +290,24 @@ export function useViewerApiGui({
     }, [modelsData]);
 
     useEffect(() => {
+        materialModeRef.current = materialMode;
+        syncGuiRef.current?.();
+    }, [materialMode]);
+
+    useEffect(() => {
+        performanceModeRef.current = performanceMode;
+        syncGuiRef.current?.();
+    }, [performanceMode]);
+
+    useEffect(() => {
         showIfcSpacesRef.current = showIfcSpaces;
         syncGuiRef.current?.();
     }, [showIfcSpaces]);
+
+    useEffect(() => {
+        useDoubleSideMaterialRef.current = useDoubleSideMaterial;
+        syncGuiRef.current?.();
+    }, [useDoubleSideMaterial]);
 
     useEffect(() => {
         useIfcSpaceRef.current = useIfcSpace;
@@ -415,6 +456,11 @@ export function useViewerApiGui({
             showIfcSpaces: showIfcSpacesRef.current,
             useIfcSpace: useIfcSpaceRef.current,
         };
+        const performanceParams: PerformanceParams = {
+            materialMode: materialModeRef.current,
+            performanceMode: performanceModeRef.current,
+            useDoubleSideMaterial: useDoubleSideMaterialRef.current,
+        };
         viewerApi.geometryUtils.setIfcSpacesVisibility(
             spacesParams.showIfcSpaces,
         );
@@ -423,8 +469,11 @@ export function useViewerApiGui({
         let collectorLevelOptionsKey: string | null = null;
         let collectorLevelController: Controller | null = null;
         let colorizeModelIDController: Controller | null = null;
+        let materialModeController: Controller | null = null;
+        let useDoubleSideMaterialController: Controller | null = null;
 
         function syncGuiState() {
+            const hasModels = hasLoadedModels(modelsDataRef.current);
             const modelID = getFirstModelID(modelsDataRef.current);
             if (!modelsDataRef.current?.[colorsParams.modelID]) {
                 colorsParams.modelID = modelID;
@@ -490,6 +539,12 @@ export function useViewerApiGui({
                 showIfcSpacesRef.current = spacesParams.showIfcSpaces;
                 onShowIfcSpacesChange?.(spacesParams.showIfcSpaces);
             }
+            performanceParams.materialMode = materialModeRef.current;
+            performanceParams.performanceMode = performanceModeRef.current;
+            performanceParams.useDoubleSideMaterial =
+                useDoubleSideMaterialRef.current;
+            materialModeController?.enable(!hasModels);
+            useDoubleSideMaterialController?.enable(!hasModels);
 
             syncControllers();
         }
@@ -700,6 +755,56 @@ export function useViewerApiGui({
                 run(() => api.utils.setGridAxisVisibility("top", value)),
             );
 
+        const performanceFolder = gui.addFolder("performance");
+        performanceFolder.close();
+        addController(
+            performanceFolder.add(performanceParams, "performanceMode"),
+        )
+            .name("performanceMode")
+            .onChange((value: boolean) => {
+                performanceModeRef.current = value;
+                onPerformanceModeChange?.(value);
+                syncGuiState();
+            });
+        materialModeController = addController(
+            performanceFolder.add(
+                performanceParams,
+                "materialMode",
+                ["quality", "performance"],
+            ),
+        )
+            .name("materialMode")
+            .onChange((value: ViewerMaterialMode | string) => {
+                if (hasLoadedModels(modelsDataRef.current)) {
+                    syncGuiState();
+                    return;
+                }
+
+                const nextMaterialMode =
+                    value === "performance" ? "performance" : "quality";
+
+                materialModeRef.current = nextMaterialMode;
+                onMaterialModeChange?.(nextMaterialMode);
+                syncGuiState();
+            });
+        useDoubleSideMaterialController = addController(
+            performanceFolder.add(
+                performanceParams,
+                "useDoubleSideMaterial",
+            ),
+        )
+            .name("useDoubleSideMaterial")
+            .onChange((value: boolean) => {
+                if (hasLoadedModels(modelsDataRef.current)) {
+                    syncGuiState();
+                    return;
+                }
+
+                useDoubleSideMaterialRef.current = value;
+                onUseDoubleSideMaterialChange?.(value);
+                syncGuiState();
+            });
+
         const spaceFolder = gui.addFolder("spaces");
         spaceFolder.close();
         addController(spaceFolder.add(spacesParams, "useIfcSpace"))
@@ -727,5 +832,12 @@ export function useViewerApiGui({
             syncGuiRef.current = null;
             gui.destroy();
         };
-    }, [api, onShowIfcSpacesChange, onUseIfcSpaceChange]);
+    }, [
+        api,
+        onMaterialModeChange,
+        onPerformanceModeChange,
+        onShowIfcSpacesChange,
+        onUseDoubleSideMaterialChange,
+        onUseIfcSpaceChange,
+    ]);
 }

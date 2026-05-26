@@ -49,6 +49,15 @@ const workerCode = `await loader.loadModel(["/models/model.ifc"], {
     },
 });`;
 
+const performanceCode = `<Viewer modelUrls={["/models/model.bmt"]} performanceMode />
+
+<Viewer modelUrls={["/models/model.bmt"]} materialMode="performance" />
+
+await loader.loadModel(["/models/model.bmt"], {
+    materialMode: "performance",
+    useDoubleSideMaterial: true,
+});`;
+
 const refCode = `import { useRef } from "react";
 import { Viewer, type ViewerApi } from "bimatter-viewer-react";
 
@@ -132,6 +141,11 @@ const viewerProps = [
     ],
     ["dpr", "number | [number, number]", "Canvas pixel ratio."],
     [
+        "materialMode",
+        "ViewerMaterialMode",
+        'Overrides model material mode. Use "performance" for a cheaper unlit material.',
+    ],
+    [
         "selected",
         "ViewerSelection",
         "Controlled selected element ids by model id.",
@@ -139,6 +153,11 @@ const viewerProps = [
     ["defaultSelected", "ViewerSelection", "Initial uncontrolled selection."],
     ["onSelectedChange", "(selected) => void", "Selection change callback."],
     ["onReady", "(api) => void", "Receives ViewerApi when scene API is ready."],
+    [
+        "performanceMode",
+        "boolean",
+        "Optimizes the canvas for heavy scenes and defaults materialMode to performance.",
+    ],
     ["showNavCube", "boolean", "Shows or hides the navigation cube."],
     ["showStats", "boolean", "Shows Drei stats overlay."],
     [
@@ -162,6 +181,16 @@ const loaderOptions = [
     ],
     ["onProgress", "(event) => void", "Receives worker progress events."],
     ["useIfcSpace", "boolean", "Include IFCSPACE geometry."],
+    [
+        "materialMode",
+        "ViewerMaterialMode",
+        'Stores model render settings. Use "performance" for a cheaper unlit material.',
+    ],
+    [
+        "useDoubleSideMaterial",
+        "boolean",
+        "Uses double-sided model materials. Disabled by default for better FPS.",
+    ],
     ["wasmPath", "string", "Custom ifc-parser.wasm URL."],
     ["chunk", "number", "IFC geometries per streamed chunk."],
     [
@@ -684,6 +713,12 @@ function getApiSearchItems(): ApiSearchItem[] {
             label: "Worker streaming",
             hash: "#worker",
             keywords: "worker streaming chunk progress useWorker",
+        },
+        {
+            label: "Performance Mode",
+            hash: "#performance-mode",
+            keywords:
+                "performance mode performanceMode materialMode useDoubleSideMaterial fps gpu double side material",
         },
         {
             label: "BMT Convertor",
@@ -1425,6 +1460,7 @@ export function ApiDocs() {
                     <a href="#viewer">Viewer component</a>
                     <a href="#loader">Loader API</a>
                     <a href="#worker">Worker streaming</a>
+                    <a href="#performance-mode">Performance mode</a>
                     <a href="#bmt-convertor">BMT Convertor</a>
                     <a href="#hotkeys">Hotkeys</a>
                     <details className="docs-sidebar-group" open>
@@ -1483,6 +1519,25 @@ export function ApiDocs() {
                                     is provided.
                                 </p>
                                 <CodeBlock>{workerCode}</CodeBlock>
+                            </section>
+
+                            <section
+                                className="docs-section"
+                                id="performance-mode"
+                            >
+                                <h2>Performance Mode</h2>
+                                <p>
+                                    Use <code>performanceMode</code> on{" "}
+                                    <code>Viewer</code> for heavy scenes. It
+                                    lowers expensive canvas settings and uses{" "}
+                                    <code>materialMode="performance"</code>{" "}
+                                    unless you pass another material mode. The
+                                    loader can also store{" "}
+                                    <code>materialMode</code> and{" "}
+                                    <code>useDoubleSideMaterial</code> in model
+                                    render settings.
+                                </p>
+                                <CodeBlock>{performanceCode}</CodeBlock>
                             </section>
 
                             <section
