@@ -8,7 +8,7 @@ Write your issuse here: [GitHub](https://github.com/rkaeplive/bimatter-viewer-re
 
 ## [Documentation](https://rkaeplive.github.io/bimatter-viewer-react/api)
 
-Demo viewer example using bimatter-viewer-react@0.5.13
+Demo viewer example using bimatter-viewer-react@0.6.3
 
 ## HotKeys
 
