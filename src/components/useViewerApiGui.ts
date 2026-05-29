@@ -18,11 +18,13 @@ type ViewerApiGuiOptions = {
     onShowIfcSpacesChange?: (showIfcSpaces: boolean) => void;
     onUseDoubleSideMaterialChange?: (useDoubleSideMaterial: boolean) => void;
     onUseIfcSpaceChange?: (useIfcSpace: boolean) => void;
+    onUsePerformanceMovingChange?: (usePerformanceMoving: boolean) => void;
     performanceMode?: boolean;
     selected: ViewerSelection;
     showIfcSpaces?: boolean;
     useDoubleSideMaterial?: boolean;
     useIfcSpace?: boolean;
+    usePerformanceMoving?: boolean;
 };
 
 type ColorsParams = {
@@ -39,6 +41,7 @@ type ColorsParams = {
 
 type ClippingParams = {
     active: boolean;
+    capsActive: boolean;
     createClippingRectangle: () => void;
     createClippingRectangleBySelected: () => void;
     deleteAllPlanes: () => void;
@@ -73,6 +76,7 @@ type PerformanceParams = {
     materialMode: ViewerMaterialMode;
     performanceMode: boolean;
     useDoubleSideMaterial: boolean;
+    usePerformanceMoving: boolean;
 };
 
 type DimensionsParams = {
@@ -264,11 +268,13 @@ export function useViewerApiGui({
     onShowIfcSpacesChange,
     onUseDoubleSideMaterialChange,
     onUseIfcSpaceChange,
+    onUsePerformanceMovingChange,
     performanceMode = false,
     selected,
     showIfcSpaces = false,
     useDoubleSideMaterial = false,
     useIfcSpace = true,
+    usePerformanceMoving = false,
 }: ViewerApiGuiOptions) {
     const selectedRef = useRef(selected);
     const modelsDataRef = useRef(modelsData);
@@ -277,6 +283,7 @@ export function useViewerApiGui({
     const showIfcSpacesRef = useRef(showIfcSpaces);
     const useDoubleSideMaterialRef = useRef(useDoubleSideMaterial);
     const useIfcSpaceRef = useRef(useIfcSpace);
+    const usePerformanceMovingRef = useRef(usePerformanceMoving);
     const syncGuiRef = useRef<(() => void) | null>(null);
 
     useEffect(() => {
@@ -313,6 +320,11 @@ export function useViewerApiGui({
         useIfcSpaceRef.current = useIfcSpace;
         syncGuiRef.current?.();
     }, [useIfcSpace]);
+
+    useEffect(() => {
+        usePerformanceMovingRef.current = usePerformanceMoving;
+        syncGuiRef.current?.();
+    }, [usePerformanceMoving]);
 
     useEffect(() => {
         if (!api) return;
@@ -388,6 +400,7 @@ export function useViewerApiGui({
 
         const clippingParams: ClippingParams = {
             active: api.clipping.getActive(),
+            capsActive: api.clipping.getCapsActive(),
             createClippingRectangle: () =>
                 run(() => api.clipping.createClippingRectangle()),
             createClippingRectangleBySelected: () =>
@@ -460,6 +473,7 @@ export function useViewerApiGui({
             materialMode: materialModeRef.current,
             performanceMode: performanceModeRef.current,
             useDoubleSideMaterial: useDoubleSideMaterialRef.current,
+            usePerformanceMoving: usePerformanceMovingRef.current,
         };
         viewerApi.geometryUtils.setIfcSpacesVisibility(
             spacesParams.showIfcSpaces,
@@ -518,6 +532,7 @@ export function useViewerApiGui({
                 viewerApi.dimensions.getSnapDistance();
             dimensionsParams.unit = viewerApi.dimensions.getUnit();
             clippingParams.active = viewerApi.clipping.getActive();
+            clippingParams.capsActive = viewerApi.clipping.getCapsActive();
             clippingParams.edgesActive = viewerApi.clipping.getEdgesActive();
             clippingParams.helpersActive =
                 viewerApi.clipping.getHelpersActive();
@@ -548,6 +563,8 @@ export function useViewerApiGui({
             performanceParams.performanceMode = performanceModeRef.current;
             performanceParams.useDoubleSideMaterial =
                 useDoubleSideMaterialRef.current;
+            performanceParams.usePerformanceMoving =
+                usePerformanceMovingRef.current;
             materialModeController?.enable(!hasModels);
             useIfcSpaceController?.enable(!hasModels);
             useDoubleSideMaterialController?.enable(!hasModels);
@@ -605,6 +622,11 @@ export function useViewerApiGui({
             .name("setEdgesActive")
             .onChange((value: boolean) =>
                 run(() => api.clipping.setEdgesActive(value)),
+            );
+        addController(clippingFolder.add(clippingParams, "capsActive"))
+            .name("setCapsActive")
+            .onChange((value: boolean) =>
+                run(() => api.clipping.setCapsActive(value)),
             );
         addController(clippingFolder.add(clippingParams, "helpersActive"))
             .name("setHelpersActive")
@@ -772,6 +794,15 @@ export function useViewerApiGui({
                 onPerformanceModeChange?.(value);
                 syncGuiState();
             });
+        addController(
+            performanceFolder.add(performanceParams, "usePerformanceMoving"),
+        )
+            .name("usePerformanceMoving")
+            .onChange((value: boolean) => {
+                usePerformanceMovingRef.current = value;
+                onUsePerformanceMovingChange?.(value);
+                syncGuiState();
+            });
         materialModeController = addController(
             performanceFolder.add(
                 performanceParams,
@@ -852,5 +883,6 @@ export function useViewerApiGui({
         onShowIfcSpacesChange,
         onUseDoubleSideMaterialChange,
         onUseIfcSpaceChange,
+        onUsePerformanceMovingChange,
     ]);
 }

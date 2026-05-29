@@ -39,3 +39,9 @@ Demo viewer example using bimatter-viewer-react@0.6.3
 ### Clipping
 
 `P` - Create clipping plane by model intersection
+
+`ALT + Drag` - Drag clipping plane
+
+### Dimensions
+
+`M` - Toggle dimension drawing mode

@@ -127,6 +127,7 @@ function ViewerDemo() {
     const [useIfcSpace, setUseIfcSpace] = useState(true);
     const [useWorker, setUseWorker] = useState(false);
     const [performanceMode, setPerformanceMode] = useState(false);
+    const [usePerformanceMoving, setUsePerformanceMoving] = useState(false);
     const [materialMode, setMaterialMode] =
         useState<ViewerMaterialMode>("quality");
     const [useDoubleSideMaterial, setUseDoubleSideMaterial] = useState(false);
@@ -141,6 +142,7 @@ function ViewerDemo() {
         modelsData,
         onMaterialModeChange: setMaterialMode,
         onPerformanceModeChange: setPerformanceMode,
+        onUsePerformanceMovingChange: setUsePerformanceMoving,
         onShowIfcSpacesChange: setShowSpaces,
         onUseDoubleSideMaterialChange: setUseDoubleSideMaterial,
         onUseIfcSpaceChange: setUseIfcSpace,
@@ -149,6 +151,7 @@ function ViewerDemo() {
         showIfcSpaces: showSpaces,
         useDoubleSideMaterial,
         useIfcSpace,
+        usePerformanceMoving,
     });
 
     useEffect(() => {
@@ -574,6 +577,7 @@ function ViewerDemo() {
                         performanceMode={performanceMode}
                         selected={selected}
                         showStats
+                        usePerformanceMoving={usePerformanceMoving}
                     />
                 </main>
                 {viewerApi && !isMobile ? (

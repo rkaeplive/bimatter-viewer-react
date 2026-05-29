@@ -48,6 +48,8 @@ const workerCode = `await loader.loadModel(["/models/model.ifc"], {
 
 const performanceCode = `<Viewer modelUrls={["/models/model.bmt"]} performanceMode />
 
+<Viewer modelUrls={["/models/model.bmt"]} usePerformanceMoving />
+
 <Viewer modelUrls={["/models/model.bmt"]} materialMode="performance" />
 
 await loader.loadModel(["/models/model.bmt"], {
@@ -152,6 +154,11 @@ const viewerProps = [
         "performanceMode",
         "boolean",
         "Optimizes the canvas for heavy scenes and defaults materialMode to performance.",
+    ],
+    [
+        "usePerformanceMoving",
+        "boolean",
+        "Temporarily lowers viewer DPR while the camera is moving.",
     ],
     ["showNavCube", "boolean", "Shows or hides the navigation cube."],
     ["showStats", "boolean", "Shows Drei stats overlay."],
@@ -380,6 +387,8 @@ const apiGroups = [
             "createClippingRectangle(selected?)",
             "toggle()",
             "setActive(active)",
+            "getCapsActive()",
+            "setCapsActive(active)",
             "setEdgesActive(active)",
             "setHelpersActive(active)",
             "deleteAllPlanes()",
@@ -475,6 +484,7 @@ const methodDescriptions: Record<string, string> = {
     getAllModelLevels: "Returns structure levels for one model.",
     getDefaultHotkeysEnabled: "Returns default hotkey state.",
     getDimensions: "Returns current dimension entities.",
+    getCapsActive: "Returns clipping section cap visibility.",
     getEdgesActive: "Returns clipping edge visibility.",
     getGridAxesVisibility: "Returns grid axis visibility by side.",
     getHelpersActive: "Returns clipping helper visibility.",
@@ -514,6 +524,7 @@ const methodDescriptions: Record<string, string> = {
     setActive: "Enables or disables the tool.",
     setColor: "Sets color for dimensions or model elements.",
     setDefaultHotkeysEnabled: "Enables or disables built-in hotkeys.",
+    setCapsActive: "Shows or hides clipping section caps.",
     setEdgesActive: "Shows or hides clipping section edges.",
     setEndpointScaleFactor: "Sets dimension endpoint visual scale.",
     setGridAxesVisibility: "Updates several grid axis visibility flags.",
@@ -722,7 +733,7 @@ function getApiSearchItems(): ApiSearchItem[] {
             label: "Performance Mode",
             hash: "#performance-mode",
             keywords:
-                "performance mode performanceMode materialMode useDoubleSideMaterial fps gpu double side material",
+                "performance mode performanceMode usePerformanceMoving materialMode useDoubleSideMaterial fps gpu double side material camera moving dpr",
         },
         {
             label: "BMT Convertor",
@@ -1552,7 +1563,9 @@ export function ApiDocs() {
                                     <code>Viewer</code> for heavy scenes. It
                                     lowers expensive canvas settings and uses{" "}
                                     <code>materialMode="performance"</code>{" "}
-                                    unless you pass another material mode. The
+                                    unless you pass another material mode. Use{" "}
+                                    <code>usePerformanceMoving</code> to lower
+                                    DPR only while the camera is moving. The
                                     loader can also store{" "}
                                     <code>materialMode</code> and{" "}
                                     <code>useDoubleSideMaterial</code> in model
