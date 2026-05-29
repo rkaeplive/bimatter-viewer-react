@@ -25,6 +25,20 @@ import {
 import { useViewerApiGui } from "./components/useViewerApiGui";
 import BimatterLoader from "./components/Loaders/BimatterLoader";
 
+type WorkerCameraFitState = {
+    finalFitRequested: boolean;
+    firstChunkFitRequested: boolean;
+    firstChunkModelID: number | null;
+};
+
+function createWorkerCameraFitState(): WorkerCameraFitState {
+    return {
+        finalFitRequested: false,
+        firstChunkFitRequested: false,
+        firstChunkModelID: null,
+    };
+}
+
 function getSelectionInfo(selected: ViewerSelection) {
     let selectedElement: SelectedElement | null = null;
     let count = 0;
@@ -117,6 +131,11 @@ function ViewerDemo() {
     const viewerRef = useRef<ViewerApi>(null);
     const fileInputRef = useRef<HTMLInputElement | null>(null);
     const exportFileInputRef = useRef<HTMLInputElement | null>(null);
+    const pendingWorkerCameraFitRef = useRef(false);
+    const workerCameraFitFrameRef = useRef<number | null>(null);
+    const workerCameraFitRef = useRef<WorkerCameraFitState>(
+        createWorkerCameraFitState(),
+    );
     const [loading, setLoading] = useState<boolean>(false);
     const [modelsData, setModelsData] = useState<ViewerLoadedModels>();
     const [selected, setSelected] = useState<ViewerSelection>({});
@@ -134,6 +153,7 @@ function ViewerDemo() {
     const [workerLoading, setWorkerLoading] = useState(false);
     const [workerProgress, setWorkerProgress] =
         useState<WorkerProgressEvent | null>(null);
+    const [workerModelsActive, setWorkerModelsActive] = useState(false);
 
     const selectionInfo = useMemo(() => getSelectionInfo(selected), [selected]);
     useViewerApiGui({
@@ -158,8 +178,65 @@ function ViewerDemo() {
         viewerApi?.geometryUtils.setIfcSpacesVisibility(showSpaces);
     }, [modelsData, showSpaces, viewerApi]);
 
+    useEffect(() => {
+        if (!pendingWorkerCameraFitRef.current) return;
+
+        pendingWorkerCameraFitRef.current = false;
+        if (workerCameraFitFrameRef.current !== null) return;
+
+        workerCameraFitFrameRef.current = window.requestAnimationFrame(() => {
+            workerCameraFitFrameRef.current = null;
+            viewerRef.current?.camera.fitCamera();
+        });
+    }, [modelsData]);
+
+    useEffect(() => {
+        return () => {
+            if (workerCameraFitFrameRef.current !== null) {
+                window.cancelAnimationFrame(workerCameraFitFrameRef.current);
+                workerCameraFitFrameRef.current = null;
+            }
+        };
+    }, []);
+
+    const requestWorkerCameraFit = () => {
+        pendingWorkerCameraFitRef.current = true;
+    };
+
+    const requestFirstWorkerChunkCameraFit = (
+        chunk: ViewerLoaderWorkerChunk,
+    ) => {
+        const cameraFitState = workerCameraFitRef.current;
+
+        if (cameraFitState.firstChunkModelID === null) {
+            cameraFitState.firstChunkModelID = chunk.modelID;
+        }
+        if (chunk.modelID !== cameraFitState.firstChunkModelID) return;
+        if (cameraFitState.firstChunkFitRequested) return;
+
+        cameraFitState.firstChunkFitRequested = true;
+        requestWorkerCameraFit();
+    };
+
+    const requestFinalWorkerCameraFit = () => {
+        if (workerCameraFitRef.current.finalFitRequested) return;
+
+        workerCameraFitRef.current.finalFitRequested = true;
+        requestWorkerCameraFit();
+    };
+
+    const resetWorkerCameraFit = () => {
+        pendingWorkerCameraFitRef.current = false;
+        if (workerCameraFitFrameRef.current !== null) {
+            window.cancelAnimationFrame(workerCameraFitFrameRef.current);
+            workerCameraFitFrameRef.current = null;
+        }
+        workerCameraFitRef.current = createWorkerCameraFitState();
+    };
+
     const setLoadedModels = (models: ViewerLoadedModels) => {
         setSelected({});
+        setWorkerModelsActive(false);
         setModelsData((currentModels) => ({
             ...(currentModels ?? {}),
             ...models,
@@ -193,6 +270,8 @@ function ViewerDemo() {
                 },
             };
         });
+
+        requestFirstWorkerChunkCameraFit(chunk);
     };
 
     const getLargeBmtModelPaths = () =>
@@ -210,6 +289,8 @@ function ViewerDemo() {
 
         if (useWorker) {
             setSelected({});
+            setWorkerModelsActive(true);
+            resetWorkerCameraFit();
             if (clearViewer) {
                 setModelsData({});
             }
@@ -228,6 +309,7 @@ function ViewerDemo() {
                 setModelsData((currentModels) =>
                     mergeLoadedModelMetadata(currentModels, models),
                 );
+                requestFinalWorkerCameraFit();
             } finally {
                 setWorkerLoading(false);
             }
@@ -237,6 +319,7 @@ function ViewerDemo() {
 
         if (clearViewer) {
             setSelected({});
+            setWorkerModelsActive(false);
             setModelsData({});
         }
 
@@ -566,12 +649,15 @@ function ViewerDemo() {
                         <div className="app-empty">Load a model</div>
                     )}
                     <Viewer
+                        autoFitCamera={!workerModelsActive}
                         ref={viewerRef}
                         materialMode={materialMode}
                         modelsData={modelsData}
                         onReady={(api) => {
                             setViewerApi(api);
-                            api.camera.fitCamera();
+                            if (!workerModelsActive) {
+                                api.camera.fitCamera();
+                            }
                         }}
                         onSelectedChange={setSelected}
                         performanceMode={performanceMode}

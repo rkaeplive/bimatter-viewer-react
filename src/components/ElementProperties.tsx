@@ -21,6 +21,17 @@ type PropertySectionProps = {
     title: string;
 };
 
+const PROPERTY_RELATION_KEYS = [
+    "HasProperties",
+    "hasProperties",
+    "HasQuantities",
+    "hasQuantities",
+    "Properties",
+    "properties",
+    "Quantities",
+    "quantities",
+];
+
 function isRecord(value: BmtPropertyValue): value is BmtPropertyRecord {
     return !!value && typeof value === "object" && !Array.isArray(value);
 }
@@ -71,6 +82,17 @@ function getPropertyItemLabel(item: BmtPropertyRecord, fallbackIndex: number) {
     );
 }
 
+function getNestedPropertyItems(item: BmtPropertyRecord) {
+    for (const key of PROPERTY_RELATION_KEYS) {
+        const value = item[key];
+        if (Array.isArray(value)) {
+            return value.filter(isRecord);
+        }
+    }
+
+    return [];
+}
+
 function getPropertyItemValue(item: BmtPropertyRecord): BmtPropertyValue {
     const valueKeys = [
         "NominalValue",
@@ -94,11 +116,32 @@ function getPropertyItemValue(item: BmtPropertyRecord): BmtPropertyValue {
 
     return Object.fromEntries(
         Object.entries(item).filter(([key]) => {
-            return !["Name", "name", "Description", "description"].includes(
-                key,
-            );
+            return ![
+                "Name",
+                "name",
+                "Description",
+                "description",
+                ...PROPERTY_RELATION_KEYS,
+            ].includes(key);
         }),
     ) as BmtPropertyRecord;
+}
+
+function getPropertyItemRows(item: BmtPropertyRecord, fallbackIndex: number) {
+    const nestedItems = getNestedPropertyItems(item);
+    if (nestedItems.length) {
+        return nestedItems.map((nestedItem, index) => ({
+            label: getPropertyItemLabel(nestedItem, index),
+            value: getPropertyItemValue(nestedItem),
+        }));
+    }
+
+    return [
+        {
+            label: getPropertyItemLabel(item, fallbackIndex),
+            value: getPropertyItemValue(item),
+        },
+    ];
 }
 
 function getPropertySetTitle(
@@ -116,19 +159,24 @@ function getPropertySetRows(propertySet: BmtPropertyRecord) {
     const props = propertySet.props;
 
     if (Array.isArray(props)) {
-        return props.map((item, index) => {
+        return props.flatMap((item, index) => {
             if (!isRecord(item)) {
-                return {
+                return [{
                     label: `Property ${index + 1}`,
                     value: item,
-                };
+                }];
             }
 
-            return {
-                label: getPropertyItemLabel(item, index),
-                value: getPropertyItemValue(item),
-            };
+            return getPropertyItemRows(item, index);
         });
+    }
+
+    const nestedItems = getNestedPropertyItems(propertySet);
+    if (nestedItems.length) {
+        return nestedItems.map((item, index) => ({
+            label: getPropertyItemLabel(item, index),
+            value: getPropertyItemValue(item),
+        }));
     }
 
     if (isRecord(props)) return getRows(props);

@@ -312,6 +312,7 @@ body,
 }
 
 .property-row {
+    align-items: start;
     display: grid;
     gap: 10px;
     grid-template-columns: 112px minmax(0, 1fr);
@@ -334,6 +335,7 @@ body,
 .property-field {
     color: #1d2733;
     min-width: 0;
+    overflow: hidden;
 }
 
 .property-value {
@@ -357,6 +359,7 @@ body,
 }
 
 .property-list-item {
+    align-items: start;
     display: grid;
     gap: 8px;
     grid-template-columns: 22px minmax(0, 1fr);
@@ -367,12 +370,17 @@ body,
 .property-compact-row > span:first-child {
     color: #7a8796;
     font-size: 12px;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .property-compact-row {
+    align-items: start;
     display: grid;
     gap: 8px;
-    grid-template-columns: 86px minmax(0, 1fr);
+    grid-template-columns: minmax(0, 86px) minmax(0, 1fr);
     min-width: 0;
 }
 
