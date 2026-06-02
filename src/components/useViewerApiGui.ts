@@ -19,12 +19,14 @@ type ViewerApiGuiOptions = {
     onUseDoubleSideMaterialChange?: (useDoubleSideMaterial: boolean) => void;
     onUseIfcSpaceChange?: (useIfcSpace: boolean) => void;
     onUsePerformanceMovingChange?: (usePerformanceMoving: boolean) => void;
+    onUseWebGPUChange?: (useWebGPU: boolean) => void;
     performanceMode?: boolean;
     selected: ViewerSelection;
     showIfcSpaces?: boolean;
     useDoubleSideMaterial?: boolean;
     useIfcSpace?: boolean;
     usePerformanceMoving?: boolean;
+    useWebGPU?: boolean;
 };
 
 type ColorsParams = {
@@ -77,6 +79,7 @@ type PerformanceParams = {
     performanceMode: boolean;
     useDoubleSideMaterial: boolean;
     usePerformanceMoving: boolean;
+    useWebGPU: boolean;
 };
 
 type DimensionsParams = {
@@ -269,12 +272,14 @@ export function useViewerApiGui({
     onUseDoubleSideMaterialChange,
     onUseIfcSpaceChange,
     onUsePerformanceMovingChange,
+    onUseWebGPUChange,
     performanceMode = false,
     selected,
     showIfcSpaces = false,
     useDoubleSideMaterial = false,
     useIfcSpace = true,
     usePerformanceMoving = false,
+    useWebGPU = false,
 }: ViewerApiGuiOptions) {
     const selectedRef = useRef(selected);
     const modelsDataRef = useRef(modelsData);
@@ -284,6 +289,7 @@ export function useViewerApiGui({
     const useDoubleSideMaterialRef = useRef(useDoubleSideMaterial);
     const useIfcSpaceRef = useRef(useIfcSpace);
     const usePerformanceMovingRef = useRef(usePerformanceMoving);
+    const useWebGPURef = useRef(useWebGPU);
     const syncGuiRef = useRef<(() => void) | null>(null);
 
     useEffect(() => {
@@ -325,6 +331,11 @@ export function useViewerApiGui({
         usePerformanceMovingRef.current = usePerformanceMoving;
         syncGuiRef.current?.();
     }, [usePerformanceMoving]);
+
+    useEffect(() => {
+        useWebGPURef.current = useWebGPU;
+        syncGuiRef.current?.();
+    }, [useWebGPU]);
 
     useEffect(() => {
         if (!api) return;
@@ -474,6 +485,7 @@ export function useViewerApiGui({
             performanceMode: performanceModeRef.current,
             useDoubleSideMaterial: useDoubleSideMaterialRef.current,
             usePerformanceMoving: usePerformanceMovingRef.current,
+            useWebGPU: useWebGPURef.current,
         };
         viewerApi.geometryUtils.setIfcSpacesVisibility(
             spacesParams.showIfcSpaces,
@@ -565,6 +577,7 @@ export function useViewerApiGui({
                 useDoubleSideMaterialRef.current;
             performanceParams.usePerformanceMoving =
                 usePerformanceMovingRef.current;
+            performanceParams.useWebGPU = useWebGPURef.current;
             materialModeController?.enable(!hasModels);
             useIfcSpaceController?.enable(!hasModels);
             useDoubleSideMaterialController?.enable(!hasModels);
@@ -803,6 +816,13 @@ export function useViewerApiGui({
                 onUsePerformanceMovingChange?.(value);
                 syncGuiState();
             });
+        addController(performanceFolder.add(performanceParams, "useWebGPU"))
+            .name("useWebGPU(test)")
+            .onChange((value: boolean) => {
+                useWebGPURef.current = value;
+                onUseWebGPUChange?.(value);
+                syncGuiState();
+            });
         materialModeController = addController(
             performanceFolder.add(
                 performanceParams,
@@ -884,5 +904,6 @@ export function useViewerApiGui({
         onUseDoubleSideMaterialChange,
         onUseIfcSpaceChange,
         onUsePerformanceMovingChange,
+        onUseWebGPUChange,
     ]);
 }

@@ -2,57 +2,79 @@ import { type FormEvent, useEffect, useMemo, useState } from "react";
 
 const installCode = `npm install bimatter-viewer-react`;
 
-const basicUsageCode = `import { Viewer } from "bimatter-viewer-react";
+const basicUsageCode = `import { useRef } from "react";
+import { Viewer, type ViewerApi } from "bimatter-viewer-react";
 
 function App() {
+    const viewerRef = useRef<ViewerApi>(null);
+
     return (
-        <Viewer
-            modelUrls={[
-                "/models/architecture.bmt",
-                "/models/structure.ifc",
-            ]}
-        />
+        <>
+            <button
+                onClick={() =>
+                    viewerRef.current?.models.loadModels(
+                        ["/models/architecture.bmt", "/models/structure.ifc"],
+                        { clearViewer: true },
+                    )
+                }
+            >
+                Load models
+            </button>
+            <Viewer ref={viewerRef} />
+        </>
     );
 }`;
 
-const controlledLoaderCode = `import { useEffect, useState } from "react";
-import {
-    loader,
-    Viewer,
-    type ViewerLoadedModels,
-} from "bimatter-viewer-react";
+const modelsApiCode = `import { useRef, useState } from "react";
+import { Viewer, type ViewerApi, type WorkerProgressEvent } from "bimatter-viewer-react";
 
 function App() {
-    const [modelsData, setModelsData] = useState<ViewerLoadedModels>();
+    const viewerRef = useRef<ViewerApi>(null);
+    const [loading, setLoading] = useState(false);
+    const [progress, setProgress] = useState<WorkerProgressEvent | null>(null);
 
-    useEffect(() => {
-        loader
-            .loadModel(["/models/architecture.bmt", "/models/structure.ifc"])
-            .then(setModelsData);
-    }, []);
-
-    return <Viewer modelsData={modelsData} />;
+    return (
+        <>
+            <button
+                disabled={loading}
+                onClick={() =>
+                    viewerRef.current?.models.loadModels(
+                        ["/models/architecture.bmt", "/models/structure.ifc"],
+                        {
+                            clearViewer: true,
+                            fitToView: true,
+                            onModelLoadingChange: setLoading,
+                            onModelProgress: setProgress,
+                        },
+                    )
+                }
+            >
+                Load models
+            </button>
+            {progress && <span>{Math.round(progress.progress * 100)}%</span>}
+            <Viewer ref={viewerRef} />
+        </>
+    );
 }`;
 
-const workerCode = `await loader.loadModel(["/models/model.ifc"], {
+const workerCode = `await viewerRef.current?.models.loadModels(["/models/model.ifc"], {
     chunk: 500,
-    collectWorkerChunks: false,
+    clearViewer: true,
+    fitToView: true,
+    onModelProgress: (event) => {
+        console.log(event?.phase, Math.round((event?.progress ?? 0) * 100));
+    },
     useWorker: true,
-    onChunk: (chunk) => {
-        // Add chunk.geometry to your progressive render state.
-    },
-    onProgress: (event) => {
-        console.log(event.phase, Math.round(event.progress * 100));
-    },
 });`;
 
-const performanceCode = `<Viewer modelUrls={["/models/model.bmt"]} performanceMode />
+const performanceCode = `<Viewer ref={viewerRef} performanceMode />
 
-<Viewer modelUrls={["/models/model.bmt"]} usePerformanceMoving />
+<Viewer ref={viewerRef} usePerformanceMoving />
 
-<Viewer modelUrls={["/models/model.bmt"]} materialMode="performance" />
+<Viewer ref={viewerRef} materialMode="performance" />
 
-await loader.loadModel(["/models/model.bmt"], {
+await viewerRef.current?.models.loadModels(["/models/model.bmt"], {
+    clearViewer: true,
     materialMode: "performance",
     useDoubleSideMaterial: true,
 });`;
@@ -71,7 +93,17 @@ function App() {
             <button onClick={() => viewerRef.current?.geometryUtils.hideSelected()}>
                 Hide selected
             </button>
-            <Viewer ref={viewerRef} modelUrls={["/models/model.bmt"]} />
+            <button
+                onClick={() =>
+                    viewerRef.current?.models.loadModels(
+                        ["/models/model.bmt"],
+                        { clearViewer: true },
+                    )
+                }
+            >
+                Load
+            </button>
+            <Viewer ref={viewerRef} />
         </>
     );
 }`;
@@ -124,12 +156,20 @@ viewer?.colors.rebuildModelByColors(
 );`;
 
 const viewerProps = [
-    ["modelUrls", "string[]", "Loads BMT or IFC files from public URLs."],
-    ["modelSources", "ViewerModelSource[]", "Loads URL or File sources."],
+    [
+        "modelUrls",
+        "string[]",
+        "Optional initial URL load. Use viewer.models.loadModels for interactive loading.",
+    ],
+    [
+        "modelSources",
+        "ViewerModelSource[]",
+        "Optional initial URL or File source load.",
+    ],
     [
         "modelsData",
         "ViewerLoadedModels",
-        "Render models that were loaded by loader.loadModel.",
+        "Controlled model data. Most apps can let Viewer own models and use viewer.models.loadModels.",
     ],
     [
         "camera",
@@ -165,23 +205,58 @@ const viewerProps = [
     [
         "autoFitCamera",
         "boolean",
-        "Automatically fits the camera when model data changes.",
+        "Enables automatic camera fitting when model data changes.",
+    ],
+    [
+        "fitToView",
+        "boolean",
+        "Controls whether automatic fitting should run for Viewer-owned loads.",
     ],
 ] as const;
 
-const loaderOptions = [
+const modelLoadOptions = [
+    [
+        "clearViewer",
+        "boolean",
+        "Clears previous Viewer-owned model data before loading.",
+    ],
+    ["fitToView", "boolean", "Fits the camera for this load. Enabled by default."],
+    [
+        "onModelsDataChange",
+        "(modelsData) => void",
+        "Receives Viewer-owned model data after reset, worker chunks and final merge.",
+    ],
+    [
+        "onModelLoadingChange",
+        "(loading) => void",
+        "Receives Viewer-owned loading state for this load request.",
+    ],
+    [
+        "onModelProgress",
+        "(progress) => void",
+        "Receives Viewer-owned loading progress, including the initial null reset.",
+    ],
     ["useWorker", "boolean", "Parse BMT or IFC outside the main thread."],
     [
         "onChunk",
         "(chunk) => void",
-        "Receives streamed geometry chunks for progressive render.",
+        "Low-level hook for streamed worker chunks. Viewer also applies chunks internally.",
     ],
     [
         "collectWorkerChunks",
         "boolean",
-        "Keep streamed chunks in the worker client result.",
+        "Keep streamed chunks in the worker client result. Viewer worker loads default this to false.",
     ],
-    ["onProgress", "(event) => void", "Receives worker progress events."],
+    [
+        "onProgress",
+        "(event) => void",
+        "Low-level loader progress hook called together with onModelProgress.",
+    ],
+    [
+        "streamGeometryChunks",
+        "boolean",
+        "Streams BMT geometry chunks during worker parsing.",
+    ],
     [
         "useIfcSpace",
         "boolean",
@@ -212,12 +287,87 @@ const propertiesExcelOptions = [
     ["emptyValue", "string", "Placeholder for empty property values."],
 ] as const;
 
+const converterOptions = [
+    [
+        "activeView",
+        "boolean",
+        "When exporting loaded models, keeps only currently visible model geometry.",
+    ],
+    ["fileName", "string", "Base output file name."],
+    [
+        "fileNames",
+        "Record<string | number, string>",
+        "Per-model output file names, keyed by model id.",
+    ],
+    [
+        "filterElement",
+        "(params) => boolean",
+        "Custom active-view filter for model elements during export.",
+    ],
+    [
+        "useIfcColors",
+        "boolean",
+        "Keeps IFC source colors while converting IFC files.",
+    ],
+    [
+        "useIfcElementAssembly",
+        "boolean",
+        "Uses IFC element assembly mapping during IFC conversion.",
+    ],
+    [
+        "useIfcSpace",
+        "boolean",
+        "Includes IFCSPACE geometry during IFC conversion.",
+    ],
+    [
+        "useMinVersion",
+        "boolean",
+        "Creates .min.bmt plus a separate _props.json metadata file.",
+    ],
+] as const;
+
 const converterWorkerOptions = [
     ["chunk", "number", "IFC geometries per streamed parse chunk."],
+    [
+        "coordinationMatrix",
+        "IfcCoordinationMatrixSource",
+        "Initial coordination matrix for IFC conversion.",
+    ],
+    ["fileName", "string", "Base output file name."],
+    [
+        "fileNames",
+        "Record<string | number, string>",
+        "Per-model output file names, keyed by model id.",
+    ],
     [
         "maxMeshBytes",
         "number",
         "Maximum IFC mesh buffer size before splitting.",
+    ],
+    [
+        "useIfcColors",
+        "boolean",
+        "Keeps IFC source colors while converting IFC files.",
+    ],
+    [
+        "useIfcElementAssembly",
+        "boolean",
+        "Uses IFC element assembly mapping during IFC conversion.",
+    ],
+    [
+        "useIfcSpace",
+        "boolean",
+        "Includes IFCSPACE geometry during IFC conversion.",
+    ],
+    [
+        "useMinVersion",
+        "boolean",
+        "Creates .min.bmt plus a separate _props.json metadata file.",
+    ],
+    [
+        "visibleIdsByModel",
+        "Record<string | number, Iterable<number>>",
+        "Optional visible element ids by model for filtered export.",
     ],
     ["wasmPath", "string", "Custom ifc-parser.wasm URL."],
     [
@@ -328,6 +478,16 @@ const apiGroups = [
     {
         name: "camera",
         methods: ["fitCamera()", "getIntersection(first?)"],
+    },
+    {
+        name: "models",
+        methods: [
+            "loadModels(sources, options?)",
+            "reset()",
+            "getData()",
+            "getLoading()",
+            "getProgress()",
+        ],
     },
     {
         name: "geometryUtils",
@@ -455,6 +615,29 @@ type ApiSearchItem = {
     keywords: string;
 };
 type DataTableRow = readonly [string, string, string];
+type OptionsTableDefinition = {
+    rows: readonly DataTableRow[];
+    typeName: string;
+};
+
+const optionsTableDefinitions: Record<string, OptionsTableDefinition> = {
+    BmtConverterWorkerClientOptions: {
+        rows: converterWorkerOptions,
+        typeName: "BmtConverterWorkerClientOptions",
+    },
+    ViewerBmtConverterOptions: {
+        rows: converterOptions,
+        typeName: "ViewerBmtConverterOptions",
+    },
+    ViewerLoadModelsOptions: {
+        rows: modelLoadOptions,
+        typeName: "ViewerLoadModelsOptions",
+    },
+    ViewerPropertiesExcelOptions: {
+        rows: propertiesExcelOptions,
+        typeName: "ViewerPropertiesExcelOptions",
+    },
+};
 
 const methodDescriptions: Record<string, string> = {
     addSelected:
@@ -490,6 +673,8 @@ const methodDescriptions: Record<string, string> = {
     getHelpersActive: "Returns clipping helper visibility.",
     getIfcSpacesVisibility: "Returns IFC space mesh visibility.",
     getIntersection: "Returns raycast intersections under the pointer.",
+    getData: "Returns Viewer-owned loaded model data.",
+    getLoading: "Returns current Viewer-owned model loading state.",
     getModelGeometry:
         "Returns the Three.js group for one loaded model, or null if it is not found.",
     getModelProps: "Returns loaded model property dictionaries.",
@@ -502,6 +687,7 @@ const methodDescriptions: Record<string, string> = {
         "Returns one property value from element props by parameter and optional property set name.",
     getPlanes: "Returns current clipping planes.",
     getPreselectionColor: "Returns hover/preselection color.",
+    getProgress: "Returns the latest Viewer-owned model loading progress event.",
     getSelected: "Returns selected element ids grouped by model id.",
     getSelectionColor: "Returns selection highlight color.",
     getShowGridAxes: "Returns grid axes visibility.",
@@ -514,7 +700,9 @@ const methodDescriptions: Record<string, string> = {
     hideSelected: "Hides the current selection.",
     isolateByIds: "Shows only specific element ids.",
     isolateSelected: "Shows only currently selected elements.",
+    loadModels: "Loads BMT or IFC sources through the Viewer-owned model state.",
     removeSelected: "Removes element ids from the current selection.",
+    reset: "Clears Viewer-owned model data, progress and selection state.",
     resetIsolation: "Clears hide and isolate state.",
     resetSelection: "Clears selection globally or for one model.",
     rebuildByColors:
@@ -559,6 +747,7 @@ const apiGroupDescriptions: Record<ApiGroupName, string> = {
     converter: "BMT export and direct IFC-to-BMT conversion.",
     dimensions: "Measurement drawing and dimension styling controls.",
     geometryUtils: "Visibility, isolation and IFC space mesh controls.",
+    models: "Viewer-owned model loading, progress and reset controls.",
     properties: "Access and export model metadata.",
     selector: "Selection state, colors and property-based element filtering.",
     utils: "Viewer UI switches, hotkeys and device helpers.",
@@ -583,6 +772,21 @@ function DataTable({ rows }: { rows: readonly DataTableRow[] }) {
                     <span>{notes}</span>
                 </div>
             ))}
+        </div>
+    );
+}
+
+function OptionsTypeTable({
+    definition,
+}: {
+    definition: OptionsTableDefinition;
+}) {
+    return (
+        <div className="docs-options-table">
+            <h3>
+                <code>{definition.typeName}</code>
+            </h3>
+            <DataTable rows={definition.rows} />
         </div>
     );
 }
@@ -720,14 +924,16 @@ function getApiSearchItems(): ApiSearchItem[] {
             keywords: "viewer component props modelUrls modelSources",
         },
         {
-            label: "Loader API",
-            hash: "#loader",
-            keywords: "loader api loadModel model loading",
+            label: "Models API",
+            hash: "#models",
+            keywords:
+                "models api loadModels viewerRef model loading clearViewer fitToView progress streamGeometryChunks onChunk collectWorkerChunks onModelsDataChange onModelLoadingChange onModelProgress",
         },
         {
             label: "Worker streaming",
             hash: "#worker",
-            keywords: "worker streaming chunk progress useWorker",
+            keywords:
+                "worker streaming chunk progress useWorker streamGeometryChunks onChunk collectWorkerChunks",
         },
         {
             label: "Performance Mode",
@@ -739,13 +945,13 @@ function getApiSearchItems(): ApiSearchItem[] {
             label: "BMT Convertor",
             hash: "#bmt-convertor",
             keywords:
-                "bmt convertor converter export convert ifc bmt worker convertIfcFilesToBmtInWorker",
+                "bmt convertor converter export convert ifc bmt worker convertIfcFilesToBmtInWorker ViewerBmtConverterOptions BmtConverterWorkerClientOptions",
         },
         {
             label: "convertIfcFilesToBmtInWorker",
             hash: "#bmt-convertor",
             keywords:
-                "converter worker ifc bmt convertIfcFilesToBmtInWorker onProgress chunk maxMeshBytes wasmPath",
+                "converter worker ifc bmt convertIfcFilesToBmtInWorker BmtConverterWorkerClientOptions onProgress chunk maxMeshBytes wasmPath",
         },
         {
             label: "Hotkeys",
@@ -942,12 +1148,16 @@ function getParameterInfo(
         ],
         options: [
             param,
-            groupName === "properties"
-                ? "ViewerPropertiesExcelOptions"
+            groupName === "models"
+                ? "ViewerLoadModelsOptions"
+                : groupName === "properties"
+                  ? "ViewerPropertiesExcelOptions"
                 : methodName === "convertIfcFilesToBmtInWorker"
                   ? "BmtConverterWorkerClientOptions"
                 : "ViewerBmtConverterOptions",
-            `Export options.${optionalSuffix}`,
+            groupName === "models"
+                ? `Model loading options.${optionalSuffix}`
+                : `Export options.${optionalSuffix}`,
         ],
         paramName: [
             param,
@@ -968,6 +1178,11 @@ function getParameterInfo(
             param,
             "number",
             `Dimension endpoint visual scale factor.${optionalSuffix}`,
+        ],
+        sources: [
+            param,
+            "ViewerModelSource[]",
+            `BMT or IFC URLs and files to load.${optionalSuffix}`,
         ],
         selected: [
             param,
@@ -1025,6 +1240,39 @@ function getMethodParameterRows(signature: string, groupName: ApiGroupName) {
     );
 }
 
+function getOptionsTableDefinitionForMethod(
+    groupName: ApiGroupName,
+    methodName: string,
+) {
+    if (groupName === "models" && methodName === "loadModels") {
+        return optionsTableDefinitions.ViewerLoadModelsOptions;
+    }
+
+    if (
+        groupName === "converter" &&
+        methodName === "convertIfcFilesToBmtInWorker"
+    ) {
+        return optionsTableDefinitions.BmtConverterWorkerClientOptions;
+    }
+
+    if (
+        groupName === "converter" &&
+        (methodName === "convertToBmt" ||
+            methodName === "convertIfcFileToBmt")
+    ) {
+        return optionsTableDefinitions.ViewerBmtConverterOptions;
+    }
+
+    if (
+        groupName === "properties" &&
+        (methodName === "exportExcel" || methodName === "exportAllExcel")
+    ) {
+        return optionsTableDefinitions.ViewerPropertiesExcelOptions;
+    }
+
+    return null;
+}
+
 function getSampleArg(param: string) {
     const normalized = param.replace("?", "").trim().toLowerCase();
 
@@ -1056,6 +1304,7 @@ function getSampleArg(param: string) {
     if (normalized === "settarget") return "true";
     if (normalized === "show") return "true";
     if (normalized === "side") return '"left"';
+    if (normalized === "sources") return '["/models/model.bmt"]';
     if (normalized === "unit") return '"mm"';
     if (normalized === "visibility") return "{ top: false, bottom: true }";
     if (normalized === "visible") return "true";
@@ -1079,6 +1328,35 @@ function getMethodExample(groupName: ApiGroupName, signature: string) {
     fileName: "converted-ifc",
     useMinVersion: true,
 });`;
+    }
+
+    if (groupName === "models") {
+        if (methodName === "loadModels") {
+            return `await viewerRef.current?.models.loadModels(
+    ["/models/model.bmt", "/models/model.ifc"],
+    {
+        clearViewer: true,
+        fitToView: true,
+        useWorker: true,
+    },
+);`;
+        }
+
+        if (methodName === "reset") {
+            return `viewerRef.current?.models.reset();`;
+        }
+
+        if (methodName === "getData") {
+            return `const modelsData = viewerRef.current?.models.getData();`;
+        }
+
+        if (methodName === "getLoading") {
+            return `const loading = viewerRef.current?.models.getLoading();`;
+        }
+
+        if (methodName === "getProgress") {
+            return `const progress = viewerRef.current?.models.getProgress();`;
+        }
     }
 
     if (
@@ -1249,6 +1527,11 @@ function ApiGroupDetail({ group }: { group: ApiGroup }) {
                         signature,
                         group.name,
                     );
+                    const optionsTableDefinition =
+                        getOptionsTableDefinitionForMethod(
+                            group.name,
+                            methodName,
+                        );
 
                     return (
                         <section
@@ -1266,15 +1549,13 @@ function ApiGroupDetail({ group }: { group: ApiGroup }) {
                             <CodeBlock>
                                 {getMethodExample(group.name, signature)}
                             </CodeBlock>
-                            {group.name === "converter" &&
-                                methodName ===
-                                    "convertIfcFilesToBmtInWorker" && (
-                                    <DataTable
-                                        rows={converterWorkerOptions}
-                                    />
-                                )}
                             {parameterRows.length > 0 && (
                                 <DataTable rows={parameterRows} />
+                            )}
+                            {optionsTableDefinition && (
+                                <OptionsTypeTable
+                                    definition={optionsTableDefinition}
+                                />
                             )}
                         </section>
                     );
@@ -1490,7 +1771,7 @@ export function ApiDocs() {
                 <aside className="docs-sidebar">
                     <a href="#install">Install</a>
                     <a href="#viewer">Viewer component</a>
-                    <a href="#loader">Loader API</a>
+                    <a href="#models">Models API</a>
                     <a href="#worker">Worker streaming</a>
                     <a href="#performance-mode">Performance mode</a>
                     <a href="#bmt-convertor">BMT Convertor</a>
@@ -1522,23 +1803,26 @@ export function ApiDocs() {
                             <section className="docs-section" id="viewer">
                                 <h2>Viewer Component</h2>
                                 <p>
-                                    The quickest path is to put model files in
-                                    your public folder and pass their URLs to
-                                    the viewer.
+                                    Create a viewer ref, then load files through
+                                    the Viewer-owned models API.
                                 </p>
                                 <CodeBlock>{basicUsageCode}</CodeBlock>
                                 <DataTable rows={viewerProps} />
                             </section>
 
-                            <section className="docs-section" id="loader">
-                                <h2>Loader API</h2>
+                            <section className="docs-section" id="models">
+                                <h2>Models API</h2>
                                 <p>
-                                    Use the loader when your app owns model
-                                    state, file uploads, progress UI or
-                                    progressive worker rendering.
+                                    Use <code>viewer.models</code> when your app
+                                    needs file uploads, progress UI, clearing the
+                                    viewer or worker loading.
                                 </p>
-                                <CodeBlock>{controlledLoaderCode}</CodeBlock>
-                                <DataTable rows={loaderOptions} />
+                                <CodeBlock>{modelsApiCode}</CodeBlock>
+                                <OptionsTypeTable
+                                    definition={
+                                        optionsTableDefinitions.ViewerLoadModelsOptions
+                                    }
+                                />
                             </section>
 
                             <section className="docs-section" id="worker">
@@ -1565,8 +1849,9 @@ export function ApiDocs() {
                                     <code>materialMode="performance"</code>{" "}
                                     unless you pass another material mode. Use{" "}
                                     <code>usePerformanceMoving</code> to lower
-                                    DPR only while the camera is moving. The
-                                    loader can also store{" "}
+                                    DPR only while the camera is moving.{" "}
+                                    <code>viewer.models.loadModels</code> can
+                                    also store{" "}
                                     <code>materialMode</code> and{" "}
                                     <code>useDoubleSideMaterial</code> in model
                                     render settings.
@@ -1591,8 +1876,17 @@ export function ApiDocs() {
                                     thread.
                                 </p>
                                 <CodeBlock>{converterCode}</CodeBlock>
+                                <OptionsTypeTable
+                                    definition={
+                                        optionsTableDefinitions.ViewerBmtConverterOptions
+                                    }
+                                />
                                 <CodeBlock>{converterWorkerCode}</CodeBlock>
-                                <DataTable rows={converterWorkerOptions} />
+                                <OptionsTypeTable
+                                    definition={
+                                        optionsTableDefinitions.BmtConverterWorkerClientOptions
+                                    }
+                                />
                             </section>
 
                             <section className="docs-section" id="hotkeys">

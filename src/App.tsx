@@ -1,6 +1,7 @@
 import "./App.css";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { _roots } from "@react-three/fiber";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ElementProperties } from "./components/ElementProperties";
 import {
     StructureTree,
@@ -11,32 +12,170 @@ import { ApiDocs } from "./components/ApiDocs/ApiDocs";
 import {
     bmtConverter,
     convertIfcFilesToBmtInWorker,
-    loader,
     Viewer,
     type ViewerApi,
     type ViewerLoadedModels,
-    type ViewerLoaderWorkerChunk,
-    type ViewerLoadModelOptions,
+    type ViewerLoadModelsOptions,
     type ViewerMaterialMode,
     type ViewerModelSource,
     type ViewerSelection,
     type WorkerProgressEvent,
 } from "bimatter-viewer-react";
 import { useViewerApiGui } from "./components/useViewerApiGui";
-import BimatterLoader from "./components/Loaders/BimatterLoader";
 
-type WorkerCameraFitState = {
-    finalFitRequested: boolean;
-    firstChunkFitRequested: boolean;
-    firstChunkModelID: number | null;
+type RendererInfoState = {
+    geometries: number;
+    textures: number;
+    triangles: number;
+};
+type RendererInfoSource = {
+    info: {
+        memory: {
+            geometries: number;
+            textures: number;
+        };
+    };
+};
+type ThreeGeometryLike = {
+    attributes?: {
+        position?: {
+            count: number;
+        };
+    };
+    getAttribute?: (name: string) => { count: number } | undefined;
+    getIndex?: () => { count: number } | null;
+    index?: {
+        count: number;
+    } | null;
+};
+type ThreeObjectLike = {
+    children?: ThreeObjectLike[];
+    geometry?: ThreeGeometryLike;
+    isMesh?: boolean;
+    visible?: boolean;
+};
+type LoadedGeometryLike = {
+    ind?: {
+        length: number;
+    };
+    pos?: {
+        length: number;
+    };
 };
 
-function createWorkerCameraFitState(): WorkerCameraFitState {
+const numberFormatter = new Intl.NumberFormat("en-US");
+
+function createEmptyRendererInfo(): RendererInfoState {
     return {
-        finalFitRequested: false,
-        firstChunkFitRequested: false,
-        firstChunkModelID: null,
+        geometries: 0,
+        textures: 0,
+        triangles: 0,
     };
+}
+
+function getRendererInfo(container: HTMLElement | null) {
+    const canvas = container?.querySelector("canvas");
+    if (!canvas) return null;
+
+    const root = _roots.get(canvas);
+    const renderer = root?.store.getState().gl as
+        | RendererInfoSource
+        | undefined;
+
+    return renderer?.info ?? null;
+}
+
+function getGeometryTriangleCount(geometry: ThreeGeometryLike) {
+    const index = geometry.getIndex?.() ?? geometry.index ?? null;
+    if (index) return Math.floor(index.count / 3);
+
+    const position =
+        geometry.getAttribute?.("position") ?? geometry.attributes?.position;
+
+    return position ? Math.floor(position.count / 3) : 0;
+}
+
+function getObjectTriangleCount(object: ThreeObjectLike, visible = true) {
+    const objectVisible = visible && object.visible !== false;
+    let triangles =
+        objectVisible && object.isMesh && object.geometry
+            ? getGeometryTriangleCount(object.geometry)
+            : 0;
+
+    object.children?.forEach((child) => {
+        triangles += getObjectTriangleCount(child, objectVisible);
+    });
+
+    return triangles;
+}
+
+function getModelTriangleCount(viewerApi: ViewerApi | null) {
+    return viewerApi
+        ? viewerApi.geometryUtils
+              .getModelsGeometry()
+              .reduce(
+                  (total, model) =>
+                      total +
+                      getObjectTriangleCount(
+                          model as unknown as ThreeObjectLike,
+                      ),
+                  0,
+              )
+        : 0;
+}
+
+function getLoadedGeometryTriangleCount(geometry: LoadedGeometryLike) {
+    if (geometry.ind?.length) return Math.floor(geometry.ind.length / 3);
+    if (geometry.pos?.length) return Math.floor(geometry.pos.length / 9);
+
+    return 0;
+}
+
+function getLoadedModelsTriangleCount(modelsData?: ViewerLoadedModels) {
+    return Object.values(modelsData ?? {}).reduce((modelTotal, model) => {
+        const geometryTotal = Object.values(model.data ?? {}).reduce(
+            (total, geometry) =>
+                total +
+                getLoadedGeometryTriangleCount(
+                    geometry as unknown as LoadedGeometryLike,
+                ),
+            0,
+        );
+
+        return modelTotal + geometryTotal;
+    }, 0);
+}
+
+function getNextRendererInfo(
+    viewerApi: ViewerApi | null,
+    container: HTMLElement | null,
+    modelsData?: ViewerLoadedModels,
+): RendererInfoState {
+    const rendererInfo = getRendererInfo(container);
+    const sceneTriangles = getModelTriangleCount(viewerApi);
+
+    return {
+        geometries: rendererInfo?.memory.geometries ?? 0,
+        textures: rendererInfo?.memory.textures ?? 0,
+        triangles: sceneTriangles || getLoadedModelsTriangleCount(modelsData),
+    };
+}
+
+function isSameRendererInfo(
+    current: RendererInfoState,
+    next: RendererInfoState,
+) {
+    return (
+        current.geometries === next.geometries &&
+        current.textures === next.textures &&
+        current.triangles === next.triangles
+    );
+}
+
+function waitForNextFrame() {
+    return new Promise<void>((resolve) => {
+        window.requestAnimationFrame(() => resolve());
+    });
 }
 
 function getSelectionInfo(selected: ViewerSelection) {
@@ -72,26 +211,6 @@ function downloadFiles(files: { blob: Blob; name: string }[]) {
         link.remove();
         window.setTimeout(() => URL.revokeObjectURL(url), 0);
     });
-}
-function mergeLoadedModelMetadata(
-    currentModels: ViewerLoadedModels | undefined,
-    loadedModels: ViewerLoadedModels,
-) {
-    const nextModels: ViewerLoadedModels = { ...(currentModels ?? {}) };
-
-    Object.entries(loadedModels).forEach(([modelID, model]) => {
-        const numericModelID = Number(modelID);
-
-        nextModels[numericModelID] = {
-            ...model,
-            data: {
-                ...(currentModels?.[numericModelID]?.data ?? {}),
-                ...model.data,
-            },
-        };
-    });
-
-    return nextModels;
 }
 
 function getAppRoutePath() {
@@ -129,14 +248,12 @@ function getAppHref(path: string) {
 
 function ViewerDemo() {
     const viewerRef = useRef<ViewerApi>(null);
+    const viewerContainerRef = useRef<HTMLElement | null>(null);
     const fileInputRef = useRef<HTMLInputElement | null>(null);
     const exportFileInputRef = useRef<HTMLInputElement | null>(null);
-    const pendingWorkerCameraFitRef = useRef(false);
-    const workerCameraFitFrameRef = useRef<number | null>(null);
-    const workerCameraFitRef = useRef<WorkerCameraFitState>(
-        createWorkerCameraFitState(),
-    );
-    const [loading, setLoading] = useState<boolean>(false);
+    const rendererInfoFrameIdsRef = useRef<number[]>([]);
+    const rendererInfoRefreshIdRef = useRef(0);
+    const [modelLoading, setModelLoading] = useState(false);
     const [modelsData, setModelsData] = useState<ViewerLoadedModels>();
     const [selected, setSelected] = useState<ViewerSelection>({});
     const [viewerApi, setViewerApi] = useState<ViewerApi | null>(null);
@@ -147,13 +264,16 @@ function ViewerDemo() {
     const [useWorker, setUseWorker] = useState(false);
     const [performanceMode, setPerformanceMode] = useState(false);
     const [usePerformanceMoving, setUsePerformanceMoving] = useState(false);
+    const [useWebGPU, setUseWebGPU] = useState(false);
     const [materialMode, setMaterialMode] =
         useState<ViewerMaterialMode>("quality");
     const [useDoubleSideMaterial, setUseDoubleSideMaterial] = useState(false);
     const [workerLoading, setWorkerLoading] = useState(false);
     const [workerProgress, setWorkerProgress] =
         useState<WorkerProgressEvent | null>(null);
-    const [workerModelsActive, setWorkerModelsActive] = useState(false);
+    const [rendererInfo, setRendererInfo] = useState<RendererInfoState>(
+        createEmptyRendererInfo,
+    );
 
     const selectionInfo = useMemo(() => getSelectionInfo(selected), [selected]);
     useViewerApiGui({
@@ -163,6 +283,7 @@ function ViewerDemo() {
         onMaterialModeChange: setMaterialMode,
         onPerformanceModeChange: setPerformanceMode,
         onUsePerformanceMovingChange: setUsePerformanceMoving,
+        onUseWebGPUChange: setUseWebGPU,
         onShowIfcSpacesChange: setShowSpaces,
         onUseDoubleSideMaterialChange: setUseDoubleSideMaterial,
         onUseIfcSpaceChange: setUseIfcSpace,
@@ -172,107 +293,112 @@ function ViewerDemo() {
         useDoubleSideMaterial,
         useIfcSpace,
         usePerformanceMoving,
+        useWebGPU,
     });
 
     useEffect(() => {
         viewerApi?.geometryUtils.setIfcSpacesVisibility(showSpaces);
     }, [modelsData, showSpaces, viewerApi]);
 
-    useEffect(() => {
-        if (!pendingWorkerCameraFitRef.current) return;
-
-        pendingWorkerCameraFitRef.current = false;
-        if (workerCameraFitFrameRef.current !== null) return;
-
-        workerCameraFitFrameRef.current = window.requestAnimationFrame(() => {
-            workerCameraFitFrameRef.current = null;
-            viewerRef.current?.camera.fitCamera();
+    const clearRendererInfoFrames = useCallback(() => {
+        rendererInfoFrameIdsRef.current.forEach((frameId) => {
+            window.cancelAnimationFrame(frameId);
         });
-    }, [modelsData]);
+        rendererInfoFrameIdsRef.current = [];
+    }, []);
+
+    const updateRendererInfo = useCallback(
+        (
+            api: ViewerApi | null,
+            data: ViewerLoadedModels | undefined = modelsData,
+        ) => {
+            const nextInfo = getNextRendererInfo(
+                api,
+                viewerContainerRef.current,
+                data,
+            );
+            setRendererInfo((currentInfo) =>
+                isSameRendererInfo(currentInfo, nextInfo)
+                    ? currentInfo
+                    : nextInfo,
+            );
+        },
+        [modelsData],
+    );
+
+    const scheduleRendererInfoUpdates = useCallback(
+        (
+            frameCount = useWebGPU ? 120 : 12,
+            data: ViewerLoadedModels | undefined = modelsData,
+        ) => {
+            clearRendererInfoFrames();
+            const refreshId = rendererInfoRefreshIdRef.current + 1;
+
+            rendererInfoRefreshIdRef.current = refreshId;
+
+            const run = (framesLeft: number) => {
+                if (rendererInfoRefreshIdRef.current !== refreshId) return;
+
+                updateRendererInfo(viewerRef.current, data);
+
+                if (framesLeft <= 0) return;
+
+                const frameId = window.requestAnimationFrame(() => {
+                    rendererInfoFrameIdsRef.current =
+                        rendererInfoFrameIdsRef.current.filter(
+                            (currentFrameId) => currentFrameId !== frameId,
+                        );
+                    run(framesLeft - 1);
+                });
+
+                rendererInfoFrameIdsRef.current.push(frameId);
+            };
+
+            const frameId = window.requestAnimationFrame(() => {
+                rendererInfoFrameIdsRef.current =
+                    rendererInfoFrameIdsRef.current.filter(
+                        (currentFrameId) => currentFrameId !== frameId,
+                    );
+                run(frameCount);
+            });
+
+            rendererInfoFrameIdsRef.current.push(frameId);
+        },
+        [
+            clearRendererInfoFrames,
+            modelsData,
+            updateRendererInfo,
+            useWebGPU,
+        ],
+    );
+
+    const setAppModelsData = (data: ViewerLoadedModels | undefined) => {
+        setModelsData(data);
+        scheduleRendererInfoUpdates(undefined, data);
+    };
+
+    const onModelsDataChange = (data: ViewerLoadedModels | undefined) => {
+        window.requestAnimationFrame(() => {
+            setAppModelsData(data);
+        });
+    };
+
+    useEffect(() => {
+        scheduleRendererInfoUpdates();
+    }, [scheduleRendererInfoUpdates, showSpaces, viewerApi]);
 
     useEffect(() => {
         return () => {
-            if (workerCameraFitFrameRef.current !== null) {
-                window.cancelAnimationFrame(workerCameraFitFrameRef.current);
-                workerCameraFitFrameRef.current = null;
-            }
+            rendererInfoRefreshIdRef.current += 1;
+            clearRendererInfoFrames();
         };
-    }, []);
-
-    const requestWorkerCameraFit = () => {
-        pendingWorkerCameraFitRef.current = true;
-    };
-
-    const requestFirstWorkerChunkCameraFit = (
-        chunk: ViewerLoaderWorkerChunk,
-    ) => {
-        const cameraFitState = workerCameraFitRef.current;
-
-        if (cameraFitState.firstChunkModelID === null) {
-            cameraFitState.firstChunkModelID = chunk.modelID;
-        }
-        if (chunk.modelID !== cameraFitState.firstChunkModelID) return;
-        if (cameraFitState.firstChunkFitRequested) return;
-
-        cameraFitState.firstChunkFitRequested = true;
-        requestWorkerCameraFit();
-    };
-
-    const requestFinalWorkerCameraFit = () => {
-        if (workerCameraFitRef.current.finalFitRequested) return;
-
-        workerCameraFitRef.current.finalFitRequested = true;
-        requestWorkerCameraFit();
-    };
-
-    const resetWorkerCameraFit = () => {
-        pendingWorkerCameraFitRef.current = false;
-        if (workerCameraFitFrameRef.current !== null) {
-            window.cancelAnimationFrame(workerCameraFitFrameRef.current);
-            workerCameraFitFrameRef.current = null;
-        }
-        workerCameraFitRef.current = createWorkerCameraFitState();
-    };
-
-    const setLoadedModels = (models: ViewerLoadedModels) => {
-        setSelected({});
-        setWorkerModelsActive(false);
-        setModelsData((currentModels) => ({
-            ...(currentModels ?? {}),
-            ...models,
-        }));
-    };
+    }, [clearRendererInfoFrames]);
 
     const getModelRenderOptions = () => ({
         materialMode: materialMode,
         useIfcSpace,
         useDoubleSideMaterial,
     });
-
-    const addWorkerChunk = (chunk: ViewerLoaderWorkerChunk) => {
-        setModelsData((currentModels) => {
-            const model = currentModels?.[chunk.modelID] ?? {
-                data: {},
-                name: chunk.modelName,
-                props: {},
-                renderSettings: getModelRenderOptions(),
-                structure: {},
-            };
-
-            return {
-                ...(currentModels ?? {}),
-                [chunk.modelID]: {
-                    ...model,
-                    data: {
-                        ...model.data,
-                        [chunk.geometryID]: chunk.geometry,
-                    },
-                },
-            };
-        });
-
-        requestFirstWorkerChunkCameraFit(chunk);
-    };
 
     const getLargeBmtModelPaths = () =>
         viewerApi?.utils.getUserDevice() === "pc"
@@ -281,66 +407,36 @@ function ViewerDemo() {
 
     const loadModels = async (
         sources: ViewerModelSource[],
-        options: ViewerLoadModelOptions = {},
-        showInitialLoader = true,
+        options: ViewerLoadModelsOptions = {},
         clearViewer = false,
     ) => {
+        const viewer = viewerRef.current;
+        if (!viewer) return;
+
+        setModelLoading(true);
         setWorkerProgress(null);
-
-        if (useWorker) {
-            setSelected({});
-            setWorkerModelsActive(true);
-            resetWorkerCameraFit();
-            if (clearViewer) {
-                setModelsData({});
-            }
-            setWorkerLoading(true);
-
-            try {
-                const models = await loader.loadModel(sources, {
-                    ...options,
-                    ...getModelRenderOptions(),
-                    collectWorkerChunks: false,
-                    onChunk: addWorkerChunk,
-                    onProgress: setWorkerProgress,
-                    useWorker: true,
-                });
-
-                setModelsData((currentModels) =>
-                    mergeLoadedModelMetadata(currentModels, models),
-                );
-                requestFinalWorkerCameraFit();
-            } finally {
-                setWorkerLoading(false);
-            }
-
-            return;
-        }
+        setSelected({});
 
         if (clearViewer) {
-            setSelected({});
-            setWorkerModelsActive(false);
             setModelsData({});
+            setRendererInfo(createEmptyRendererInfo());
         }
 
-        const shouldShowLoader =
-            showInitialLoader || !modelsData || !Object.keys(modelsData).length;
-
-        if (shouldShowLoader) {
-            setLoading(true);
-        }
+        await waitForNextFrame();
 
         try {
-            const models = await loader.loadModel(sources, {
+            await viewer.models.loadModels(sources, {
                 ...options,
                 ...getModelRenderOptions(),
-                useWorker: false,
+                clearViewer,
+                fitToView: true,
+                onModelLoadingChange: setModelLoading,
+                onModelProgress: setWorkerProgress,
+                onModelsDataChange,
+                useWorker,
             });
-            setLoadedModels(models);
         } finally {
-            if (shouldShowLoader) {
-                setLoading(false);
-            }
+            setModelLoading(false);
         }
     };
 
@@ -355,7 +451,24 @@ function ViewerDemo() {
         }
     };
     useEffect(() => {
-        setViewerApi(viewerRef.current);
+        let frameID: number | null = null;
+
+        const syncViewerApi = () => {
+            if (viewerRef.current) {
+                setViewerApi(viewerRef.current);
+                return;
+            }
+
+            frameID = window.requestAnimationFrame(syncViewerApi);
+        };
+
+        frameID = window.requestAnimationFrame(syncViewerApi);
+
+        return () => {
+            if (frameID !== null) {
+                window.cancelAnimationFrame(frameID);
+            }
+        };
     }, []);
     const selectElements = (
         modelID: number,
@@ -441,9 +554,9 @@ function ViewerDemo() {
     };
     const apiDocsHref = getAppHref("/api");
     const isMobile = viewerApi?.utils.getUserDevice() === "mobile";
-    if (loading) {
-        return <BimatterLoader loading isTransparent></BimatterLoader>;
-    }
+    const appBusy = modelLoading || workerLoading;
+    const hasModels = !!modelsData && Object.keys(modelsData).length > 0;
+
     return (
         <div className="app">
             <div className="app-toolbar">
@@ -468,26 +581,25 @@ function ViewerDemo() {
                 <label className="app-toolbar-checkbox">
                     <input
                         checked={useWorker}
-                        disabled={workerLoading}
+                        disabled={appBusy}
                         onChange={(event) => setUseWorker(event.target.checked)}
                         type="checkbox"
                     />
                     useWorker
                 </label>
                 <button
-                    disabled={workerLoading}
+                    disabled={!viewerApi || appBusy}
                     onClick={() => fileInputRef.current?.click()}
                     type="button"
                 >
                     Load files
                 </button>
                 <button
-                    disabled={workerLoading}
+                    disabled={!viewerApi || appBusy}
                     onClick={() =>
                         loadModels(
                             ["./demo_ar.min.bmt", "./demo_kr.min.bmt"],
                             {},
-                            true,
                             true,
                         )
                     }
@@ -496,7 +608,7 @@ function ViewerDemo() {
                     Load bmt models
                 </button>
                 <button
-                    disabled={workerLoading}
+                    disabled={!viewerApi || appBusy}
                     onClick={() =>
                         loadModels(
                             [
@@ -507,7 +619,6 @@ function ViewerDemo() {
                                 ...(useWorker ? { chunk: 500 } : {}),
                             },
                             true,
-                            true,
                         )
                     }
                     type="button"
@@ -515,9 +626,9 @@ function ViewerDemo() {
                     Load ifc models
                 </button>
                 <button
-                    disabled={workerLoading}
+                    disabled={!viewerApi || appBusy}
                     onClick={() =>
-                        loadModels(getLargeBmtModelPaths(), {}, true, true)
+                        loadModels(getLargeBmtModelPaths(), {}, true)
                     }
                     type="button"
                 >
@@ -558,14 +669,14 @@ function ViewerDemo() {
                 <div className="app-toolbar-group">
                     <span className="app-toolbar-title">Export</span>
                     <button
-                        disabled={workerLoading}
+                        disabled={!viewerApi || appBusy}
                         onClick={() => exportFileInputRef.current?.click()}
                         type="button"
                     >
                         Convert files to BMT
                     </button>
                     <button
-                        disabled={!viewerApi || !modelsData}
+                        disabled={!viewerApi || !hasModels || appBusy}
                         onClick={exportBmt}
                         type="button"
                     >
@@ -594,7 +705,7 @@ function ViewerDemo() {
                     <div className="app-toolbar-group">
                         <span className="app-toolbar-title">Excel</span>
                         <button
-                            disabled={!viewerApi || !modelsData}
+                            disabled={!viewerApi || !hasModels || appBusy}
                             onClick={exportModelsExcel}
                             type="button"
                         >
@@ -608,19 +719,8 @@ function ViewerDemo() {
                         </a>
                     </div>
                 </div>
-                <span
-                    style={{
-                        position: "absolute",
-                        left:
-                            viewerApi?.utils.getUserDevice() === "mobile"
-                                ? 30
-                                : 300,
-                        top: 50,
-                    }}
-                >
-                    Selected: {selectionInfo.count}
-                </span>
-                {workerProgress && (
+
+                {workerProgress && appBusy && (
                     <span
                         style={{
                             position: "absolute",
@@ -644,26 +744,41 @@ function ViewerDemo() {
                 ) : (
                     <div></div>
                 )}
-                <main className="app-viewer">
-                    {!modelsData && (
+                <main className="app-viewer" ref={viewerContainerRef}>
+                    {!hasModels && (
                         <div className="app-empty">Load a model</div>
                     )}
+                    <div
+                        className="app-renderer-info"
+                        style={{
+                            left:
+                                viewerApi?.utils.getUserDevice() === "mobile"
+                                    ? 30
+                                    : 300,
+                        }}
+                    >
+                        <div className="app-renderer-info-row">
+                            <span>
+                                Triangles:{" "}
+                                {numberFormatter.format(rendererInfo.triangles)}
+                            </span>
+                        </div>
+                        <div className="app-renderer-info-row">
+                            <span>Selected: {selectionInfo.count}</span>
+                        </div>
+                    </div>
                     <Viewer
-                        autoFitCamera={!workerModelsActive}
                         ref={viewerRef}
                         materialMode={materialMode}
-                        modelsData={modelsData}
                         onReady={(api) => {
                             setViewerApi(api);
-                            if (!workerModelsActive) {
-                                api.camera.fitCamera();
-                            }
                         }}
                         onSelectedChange={setSelected}
                         performanceMode={performanceMode}
                         selected={selected}
                         showStats
                         usePerformanceMoving={usePerformanceMoving}
+                        useWebGPU={useWebGPU}
                     />
                 </main>
                 {viewerApi && !isMobile ? (
