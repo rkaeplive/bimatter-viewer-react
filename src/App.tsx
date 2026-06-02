@@ -1,6 +1,5 @@
 import "./App.css";
 
-import { _roots } from "@react-three/fiber";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ElementProperties } from "./components/ElementProperties";
 import {
@@ -19,41 +18,15 @@ import {
     type ViewerMaterialMode,
     type ViewerModelSource,
     type ViewerSelection,
+    type ViewerUploadMode,
     type WorkerProgressEvent,
 } from "bimatter-viewer-react";
 import { useViewerApiGui } from "./components/useViewerApiGui";
 
 type RendererInfoState = {
-    geometries: number;
-    textures: number;
     triangles: number;
 };
-type RendererInfoSource = {
-    info: {
-        memory: {
-            geometries: number;
-            textures: number;
-        };
-    };
-};
-type ThreeGeometryLike = {
-    attributes?: {
-        position?: {
-            count: number;
-        };
-    };
-    getAttribute?: (name: string) => { count: number } | undefined;
-    getIndex?: () => { count: number } | null;
-    index?: {
-        count: number;
-    } | null;
-};
-type ThreeObjectLike = {
-    children?: ThreeObjectLike[];
-    geometry?: ThreeGeometryLike;
-    isMesh?: boolean;
-    visible?: boolean;
-};
+
 type LoadedGeometryLike = {
     ind?: {
         length: number;
@@ -67,61 +40,8 @@ const numberFormatter = new Intl.NumberFormat("en-US");
 
 function createEmptyRendererInfo(): RendererInfoState {
     return {
-        geometries: 0,
-        textures: 0,
         triangles: 0,
     };
-}
-
-function getRendererInfo(container: HTMLElement | null) {
-    const canvas = container?.querySelector("canvas");
-    if (!canvas) return null;
-
-    const root = _roots.get(canvas);
-    const renderer = root?.store.getState().gl as
-        | RendererInfoSource
-        | undefined;
-
-    return renderer?.info ?? null;
-}
-
-function getGeometryTriangleCount(geometry: ThreeGeometryLike) {
-    const index = geometry.getIndex?.() ?? geometry.index ?? null;
-    if (index) return Math.floor(index.count / 3);
-
-    const position =
-        geometry.getAttribute?.("position") ?? geometry.attributes?.position;
-
-    return position ? Math.floor(position.count / 3) : 0;
-}
-
-function getObjectTriangleCount(object: ThreeObjectLike, visible = true) {
-    const objectVisible = visible && object.visible !== false;
-    let triangles =
-        objectVisible && object.isMesh && object.geometry
-            ? getGeometryTriangleCount(object.geometry)
-            : 0;
-
-    object.children?.forEach((child) => {
-        triangles += getObjectTriangleCount(child, objectVisible);
-    });
-
-    return triangles;
-}
-
-function getModelTriangleCount(viewerApi: ViewerApi | null) {
-    return viewerApi
-        ? viewerApi.geometryUtils
-              .getModelsGeometry()
-              .reduce(
-                  (total, model) =>
-                      total +
-                      getObjectTriangleCount(
-                          model as unknown as ThreeObjectLike,
-                      ),
-                  0,
-              )
-        : 0;
 }
 
 function getLoadedGeometryTriangleCount(geometry: LoadedGeometryLike) {
@@ -147,17 +67,10 @@ function getLoadedModelsTriangleCount(modelsData?: ViewerLoadedModels) {
 }
 
 function getNextRendererInfo(
-    viewerApi: ViewerApi | null,
-    container: HTMLElement | null,
     modelsData?: ViewerLoadedModels,
 ): RendererInfoState {
-    const rendererInfo = getRendererInfo(container);
-    const sceneTriangles = getModelTriangleCount(viewerApi);
-
     return {
-        geometries: rendererInfo?.memory.geometries ?? 0,
-        textures: rendererInfo?.memory.textures ?? 0,
-        triangles: sceneTriangles || getLoadedModelsTriangleCount(modelsData),
+        triangles: getLoadedModelsTriangleCount(modelsData),
     };
 }
 
@@ -165,11 +78,7 @@ function isSameRendererInfo(
     current: RendererInfoState,
     next: RendererInfoState,
 ) {
-    return (
-        current.geometries === next.geometries &&
-        current.textures === next.textures &&
-        current.triangles === next.triangles
-    );
+    return current.triangles === next.triangles;
 }
 
 function waitForNextFrame() {
@@ -267,6 +176,7 @@ function ViewerDemo() {
     const [useWebGPU, setUseWebGPU] = useState(false);
     const [materialMode, setMaterialMode] =
         useState<ViewerMaterialMode>("quality");
+    const [uploadMode, setUploadMode] = useState<ViewerUploadMode>("balanced");
     const [useDoubleSideMaterial, setUseDoubleSideMaterial] = useState(false);
     const [workerLoading, setWorkerLoading] = useState(false);
     const [workerProgress, setWorkerProgress] =
@@ -282,6 +192,7 @@ function ViewerDemo() {
         modelsData,
         onMaterialModeChange: setMaterialMode,
         onPerformanceModeChange: setPerformanceMode,
+        onUploadModeChange: setUploadMode,
         onUsePerformanceMovingChange: setUsePerformanceMoving,
         onUseWebGPUChange: setUseWebGPU,
         onShowIfcSpacesChange: setShowSpaces,
@@ -290,6 +201,7 @@ function ViewerDemo() {
         performanceMode,
         selected,
         showIfcSpaces: showSpaces,
+        uploadMode,
         useDoubleSideMaterial,
         useIfcSpace,
         usePerformanceMoving,
@@ -308,15 +220,8 @@ function ViewerDemo() {
     }, []);
 
     const updateRendererInfo = useCallback(
-        (
-            api: ViewerApi | null,
-            data: ViewerLoadedModels | undefined = modelsData,
-        ) => {
-            const nextInfo = getNextRendererInfo(
-                api,
-                viewerContainerRef.current,
-                data,
-            );
+        (data: ViewerLoadedModels | undefined = modelsData) => {
+            const nextInfo = getNextRendererInfo(data);
             setRendererInfo((currentInfo) =>
                 isSameRendererInfo(currentInfo, nextInfo)
                     ? currentInfo
@@ -325,67 +230,6 @@ function ViewerDemo() {
         },
         [modelsData],
     );
-
-    const scheduleRendererInfoUpdates = useCallback(
-        (
-            frameCount = useWebGPU ? 120 : 12,
-            data: ViewerLoadedModels | undefined = modelsData,
-        ) => {
-            clearRendererInfoFrames();
-            const refreshId = rendererInfoRefreshIdRef.current + 1;
-
-            rendererInfoRefreshIdRef.current = refreshId;
-
-            const run = (framesLeft: number) => {
-                if (rendererInfoRefreshIdRef.current !== refreshId) return;
-
-                updateRendererInfo(viewerRef.current, data);
-
-                if (framesLeft <= 0) return;
-
-                const frameId = window.requestAnimationFrame(() => {
-                    rendererInfoFrameIdsRef.current =
-                        rendererInfoFrameIdsRef.current.filter(
-                            (currentFrameId) => currentFrameId !== frameId,
-                        );
-                    run(framesLeft - 1);
-                });
-
-                rendererInfoFrameIdsRef.current.push(frameId);
-            };
-
-            const frameId = window.requestAnimationFrame(() => {
-                rendererInfoFrameIdsRef.current =
-                    rendererInfoFrameIdsRef.current.filter(
-                        (currentFrameId) => currentFrameId !== frameId,
-                    );
-                run(frameCount);
-            });
-
-            rendererInfoFrameIdsRef.current.push(frameId);
-        },
-        [
-            clearRendererInfoFrames,
-            modelsData,
-            updateRendererInfo,
-            useWebGPU,
-        ],
-    );
-
-    const setAppModelsData = (data: ViewerLoadedModels | undefined) => {
-        setModelsData(data);
-        scheduleRendererInfoUpdates(undefined, data);
-    };
-
-    const onModelsDataChange = (data: ViewerLoadedModels | undefined) => {
-        window.requestAnimationFrame(() => {
-            setAppModelsData(data);
-        });
-    };
-
-    useEffect(() => {
-        scheduleRendererInfoUpdates();
-    }, [scheduleRendererInfoUpdates, showSpaces, viewerApi]);
 
     useEffect(() => {
         return () => {
@@ -396,6 +240,7 @@ function ViewerDemo() {
 
     const getModelRenderOptions = () => ({
         materialMode: materialMode,
+        uploadMode,
         useIfcSpace,
         useDoubleSideMaterial,
     });
@@ -429,10 +274,13 @@ function ViewerDemo() {
                 ...options,
                 ...getModelRenderOptions(),
                 clearViewer,
-                fitToView: true,
+                // fitToView: true,
                 onModelLoadingChange: setModelLoading,
                 onModelProgress: setWorkerProgress,
-                onModelsDataChange,
+                onModelsDataChange: (data) => {
+                    updateRendererInfo(data);
+                    setModelsData(data);
+                },
                 useWorker,
             });
         } finally {
@@ -768,6 +616,7 @@ function ViewerDemo() {
                         </div>
                     </div>
                     <Viewer
+                        autoFitCamera
                         ref={viewerRef}
                         materialMode={materialMode}
                         onReady={(api) => {

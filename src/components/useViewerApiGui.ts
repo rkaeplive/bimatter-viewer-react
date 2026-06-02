@@ -7,6 +7,7 @@ import type {
     ViewerMaterialMode,
     ViewerModelLevel,
     ViewerSelection,
+    ViewerUploadMode,
 } from "bimatter-viewer-react";
 
 type ViewerApiGuiOptions = {
@@ -15,6 +16,7 @@ type ViewerApiGuiOptions = {
     modelsData?: ViewerLoadedModels;
     onMaterialModeChange?: (materialMode: ViewerMaterialMode) => void;
     onPerformanceModeChange?: (performanceMode: boolean) => void;
+    onUploadModeChange?: (uploadMode: ViewerUploadMode) => void;
     onShowIfcSpacesChange?: (showIfcSpaces: boolean) => void;
     onUseDoubleSideMaterialChange?: (useDoubleSideMaterial: boolean) => void;
     onUseIfcSpaceChange?: (useIfcSpace: boolean) => void;
@@ -23,6 +25,7 @@ type ViewerApiGuiOptions = {
     performanceMode?: boolean;
     selected: ViewerSelection;
     showIfcSpaces?: boolean;
+    uploadMode?: ViewerUploadMode;
     useDoubleSideMaterial?: boolean;
     useIfcSpace?: boolean;
     usePerformanceMoving?: boolean;
@@ -77,6 +80,7 @@ type SpacesParams = {
 type PerformanceParams = {
     materialMode: ViewerMaterialMode;
     performanceMode: boolean;
+    uploadMode: ViewerUploadMode;
     useDoubleSideMaterial: boolean;
     usePerformanceMoving: boolean;
     useWebGPU: boolean;
@@ -268,6 +272,7 @@ export function useViewerApiGui({
     modelsData,
     onMaterialModeChange,
     onPerformanceModeChange,
+    onUploadModeChange,
     onShowIfcSpacesChange,
     onUseDoubleSideMaterialChange,
     onUseIfcSpaceChange,
@@ -276,6 +281,7 @@ export function useViewerApiGui({
     performanceMode = false,
     selected,
     showIfcSpaces = false,
+    uploadMode = "balanced",
     useDoubleSideMaterial = false,
     useIfcSpace = true,
     usePerformanceMoving = false,
@@ -285,6 +291,7 @@ export function useViewerApiGui({
     const modelsDataRef = useRef(modelsData);
     const materialModeRef = useRef(materialMode);
     const performanceModeRef = useRef(performanceMode);
+    const uploadModeRef = useRef(uploadMode);
     const showIfcSpacesRef = useRef(showIfcSpaces);
     const useDoubleSideMaterialRef = useRef(useDoubleSideMaterial);
     const useIfcSpaceRef = useRef(useIfcSpace);
@@ -311,6 +318,11 @@ export function useViewerApiGui({
         performanceModeRef.current = performanceMode;
         syncGuiRef.current?.();
     }, [performanceMode]);
+
+    useEffect(() => {
+        uploadModeRef.current = uploadMode;
+        syncGuiRef.current?.();
+    }, [uploadMode]);
 
     useEffect(() => {
         showIfcSpacesRef.current = showIfcSpaces;
@@ -483,6 +495,7 @@ export function useViewerApiGui({
         const performanceParams: PerformanceParams = {
             materialMode: materialModeRef.current,
             performanceMode: performanceModeRef.current,
+            uploadMode: uploadModeRef.current,
             useDoubleSideMaterial: useDoubleSideMaterialRef.current,
             usePerformanceMoving: usePerformanceMovingRef.current,
             useWebGPU: useWebGPURef.current,
@@ -496,6 +509,7 @@ export function useViewerApiGui({
         let collectorLevelController: Controller | null = null;
         let colorizeModelIDController: Controller | null = null;
         let materialModeController: Controller | null = null;
+        let uploadModeController: Controller | null = null;
         let useIfcSpaceController: Controller | null = null;
         let useDoubleSideMaterialController: Controller | null = null;
 
@@ -573,12 +587,14 @@ export function useViewerApiGui({
             }
             performanceParams.materialMode = materialModeRef.current;
             performanceParams.performanceMode = performanceModeRef.current;
+            performanceParams.uploadMode = uploadModeRef.current;
             performanceParams.useDoubleSideMaterial =
                 useDoubleSideMaterialRef.current;
             performanceParams.usePerformanceMoving =
                 usePerformanceMovingRef.current;
             performanceParams.useWebGPU = useWebGPURef.current;
             materialModeController?.enable(!hasModels);
+            uploadModeController?.enable(!hasModels);
             useIfcSpaceController?.enable(!hasModels);
             useDoubleSideMaterialController?.enable(!hasModels);
 
@@ -844,6 +860,29 @@ export function useViewerApiGui({
                 onMaterialModeChange?.(nextMaterialMode);
                 syncGuiState();
             });
+        uploadModeController = addController(
+            performanceFolder.add(
+                performanceParams,
+                "uploadMode",
+                ["smooth", "balanced", "fast"],
+            ),
+        )
+            .name("uploadMode")
+            .onChange((value: ViewerUploadMode | string) => {
+                if (hasLoadedModels(modelsDataRef.current)) {
+                    syncGuiState();
+                    return;
+                }
+
+                const nextUploadMode =
+                    value === "smooth" || value === "fast"
+                        ? value
+                        : "balanced";
+
+                uploadModeRef.current = nextUploadMode;
+                onUploadModeChange?.(nextUploadMode);
+                syncGuiState();
+            });
         useDoubleSideMaterialController = addController(
             performanceFolder.add(
                 performanceParams,
@@ -900,6 +939,7 @@ export function useViewerApiGui({
         api,
         onMaterialModeChange,
         onPerformanceModeChange,
+        onUploadModeChange,
         onShowIfcSpacesChange,
         onUseDoubleSideMaterialChange,
         onUseIfcSpaceChange,
