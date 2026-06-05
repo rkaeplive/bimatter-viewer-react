@@ -6,6 +6,7 @@ import type {
     ViewerLoadedModels,
     ViewerMaterialMode,
     ViewerModelLevel,
+    ViewerPostproductionPassType,
     ViewerSelection,
     ViewerUploadMode,
 } from "bimatter-viewer-react";
@@ -84,6 +85,54 @@ type PerformanceParams = {
     useDoubleSideMaterial: boolean;
     usePerformanceMoving: boolean;
     useWebGPU: boolean;
+};
+
+type PostproductionPassFilterOption = "N8AO" | "SSAO" | "null";
+type N8AOQuality = "low" | "medium" | "high";
+
+type PostproductionParams = {
+    ambientLightColor: string;
+    ambientLightIntensity: number;
+    directionalLightColor: string;
+    directionalLightIntensity: number;
+    n8aoAoRadius: number;
+    n8aoIntensity: number;
+    n8aoQuality: N8AOQuality;
+    passFilter: PostproductionPassFilterOption;
+    saturation: number;
+    ssaoBias: number;
+    ssaoDepthAwareUpsampling: boolean;
+    ssaoIntensity: number;
+    ssaoRadius: number;
+    ssaoResolutionScale: number;
+    ssaoRings: number;
+    ssaoSamples: number;
+};
+
+type N8AOPassLike = {
+    configuration?: Record<string, unknown>;
+    firstFrame?: () => void;
+    setQualityMode?: (quality: string) => void;
+};
+
+type SSAOMaterialLike = {
+    bias?: number;
+    intensity?: number;
+    radius?: number;
+    rings?: number;
+    samples?: number;
+};
+
+type SSAOPassLike = {
+    depthAwareUpsampling?: boolean;
+    getResolution?: () => { scale?: number };
+    getSSAOMaterial?: () => SSAOMaterialLike;
+    intensity?: number;
+    radius?: number;
+    resolution?: { scale?: number };
+    rings?: number;
+    samples?: number;
+    setChanged?: () => void;
 };
 
 type DimensionsParams = {
@@ -177,6 +226,196 @@ function parseIds(value: string) {
         .split(/[,\s]+/)
         .map((item) => Number(item.trim()))
         .filter((item) => Number.isFinite(item));
+}
+
+function getFiniteNumber(value: unknown, fallback: number) {
+    return typeof value === "number" && Number.isFinite(value)
+        ? value
+        : fallback;
+}
+
+function getColorInputValue(value: unknown, fallback = "#ffffff") {
+    if (typeof value === "string") {
+        if (/^#[0-9a-f]{6}$/i.test(value)) return value;
+        if (/^#[0-9a-f]{3}$/i.test(value)) {
+            return `#${value
+                .slice(1)
+                .split("")
+                .map((item) => `${item}${item}`)
+                .join("")}`;
+        }
+    }
+
+    if (typeof value === "number" && Number.isFinite(value)) {
+        return `#${value.toString(16).padStart(6, "0").slice(-6)}`;
+    }
+
+    return fallback;
+}
+
+function toPostproductionPassFilterOption(
+    type: ViewerPostproductionPassType | undefined,
+): PostproductionPassFilterOption {
+    return type === "SSAO" || type === "N8AO" ? type : "null";
+}
+
+function toPostproductionPassType(
+    value: PostproductionPassFilterOption,
+): ViewerPostproductionPassType {
+    return value === "null" ? null : value;
+}
+
+function getN8AOQualityMode(quality: N8AOQuality) {
+    return `${quality.charAt(0).toUpperCase()}${quality.slice(1)}`;
+}
+
+function setControllerVisible(controller: Controller, visible: boolean) {
+    controller.show(visible);
+    controller.enable(visible);
+}
+
+function getSSAOResolution(pass: SSAOPassLike) {
+    return pass.getResolution?.() ?? pass.resolution;
+}
+
+function readPostproductionPassParams(
+    api: ViewerApi,
+    params: PostproductionParams,
+    syncPassFilter = true,
+) {
+    const activePassFilter = api.postproduction.getActivePassFilter();
+    if (!activePassFilter) return;
+
+    if (syncPassFilter) {
+        params.passFilter = activePassFilter.type;
+    }
+
+    if (activePassFilter.type === "N8AO") {
+        const pass = activePassFilter.pass as N8AOPassLike;
+        const configuration = pass.configuration;
+
+        params.n8aoAoRadius = getFiniteNumber(
+            configuration?.aoRadius,
+            params.n8aoAoRadius,
+        );
+        params.n8aoIntensity = getFiniteNumber(
+            configuration?.intensity,
+            params.n8aoIntensity,
+        );
+        return;
+    }
+
+    const pass = activePassFilter.pass as SSAOPassLike;
+    const material = pass.getSSAOMaterial?.();
+    const resolution = getSSAOResolution(pass);
+
+    params.ssaoSamples = getFiniteNumber(
+        pass.samples ?? material?.samples,
+        params.ssaoSamples,
+    );
+    params.ssaoRings = getFiniteNumber(
+        pass.rings ?? material?.rings,
+        params.ssaoRings,
+    );
+    params.ssaoRadius = getFiniteNumber(
+        pass.radius ?? material?.radius,
+        params.ssaoRadius,
+    );
+    params.ssaoIntensity = getFiniteNumber(
+        pass.intensity ?? material?.intensity,
+        params.ssaoIntensity,
+    );
+    params.ssaoBias = getFiniteNumber(material?.bias, params.ssaoBias);
+    params.ssaoResolutionScale = getFiniteNumber(
+        resolution?.scale,
+        params.ssaoResolutionScale,
+    );
+    params.ssaoDepthAwareUpsampling =
+        typeof pass.depthAwareUpsampling === "boolean"
+            ? pass.depthAwareUpsampling
+            : params.ssaoDepthAwareUpsampling;
+}
+
+function readPostproductionLightingParams(
+    api: ViewerApi,
+    params: PostproductionParams,
+) {
+    const lighting = api.postproduction.getLighting();
+
+    params.ambientLightColor = getColorInputValue(lighting.ambient.color);
+    params.ambientLightIntensity = getFiniteNumber(
+        lighting.ambient.intensity,
+        params.ambientLightIntensity,
+    );
+    params.directionalLightColor = getColorInputValue(
+        lighting.directional.color,
+    );
+    params.directionalLightIntensity = getFiniteNumber(
+        lighting.directional.intensity,
+        params.directionalLightIntensity,
+    );
+}
+
+function applyN8AOPostproductionParams(
+    api: ViewerApi,
+    params: PostproductionParams,
+) {
+    const activePassFilter = api.postproduction.getActivePassFilter();
+    if (activePassFilter?.type !== "N8AO") return;
+
+    const pass = activePassFilter.pass as N8AOPassLike;
+    if (pass.configuration) {
+        pass.configuration.aoRadius = params.n8aoAoRadius;
+        pass.configuration.intensity = params.n8aoIntensity;
+    }
+    pass.setQualityMode?.(getN8AOQualityMode(params.n8aoQuality));
+    pass.firstFrame?.();
+}
+
+function applySSAOPostproductionParams(
+    api: ViewerApi,
+    params: PostproductionParams,
+) {
+    const activePassFilter = api.postproduction.getActivePassFilter();
+    if (activePassFilter?.type !== "SSAO") return;
+
+    const pass = activePassFilter.pass as SSAOPassLike;
+    const material = pass.getSSAOMaterial?.();
+    const resolution = getSSAOResolution(pass);
+
+    pass.samples = params.ssaoSamples;
+    pass.rings = params.ssaoRings;
+    pass.radius = params.ssaoRadius;
+    pass.intensity = params.ssaoIntensity;
+    pass.depthAwareUpsampling = params.ssaoDepthAwareUpsampling;
+
+    if (material) {
+        material.samples = params.ssaoSamples;
+        material.rings = params.ssaoRings;
+        material.radius = params.ssaoRadius;
+        material.intensity = params.ssaoIntensity;
+        material.bias = params.ssaoBias;
+    }
+
+    if (resolution) {
+        resolution.scale = params.ssaoResolutionScale;
+    }
+
+    pass.setChanged?.();
+}
+
+function applyPostproductionPassParams(
+    api: ViewerApi,
+    params: PostproductionParams,
+) {
+    if (params.passFilter === "N8AO") {
+        applyN8AOPostproductionParams(api, params);
+        return;
+    }
+
+    if (params.passFilter === "SSAO") {
+        applySSAOPostproductionParams(api, params);
+    }
 }
 
 function getFirstModelID(modelsData?: ViewerLoadedModels) {
@@ -500,6 +739,35 @@ export function useViewerApiGui({
             usePerformanceMoving: usePerformanceMovingRef.current,
             useWebGPU: useWebGPURef.current,
         };
+        const activePassFilter = viewerApi.postproduction.getActivePassFilter();
+        const lighting = viewerApi.postproduction.getLighting();
+        const activePassFilterOption = toPostproductionPassFilterOption(
+            activePassFilter?.type,
+        );
+        const postproductionParams: PostproductionParams = {
+            ambientLightColor: getColorInputValue(lighting.ambient.color),
+            ambientLightIntensity: lighting.ambient.intensity,
+            directionalLightColor: getColorInputValue(
+                lighting.directional.color,
+            ),
+            directionalLightIntensity: lighting.directional.intensity,
+            n8aoAoRadius: 4,
+            n8aoIntensity: 2.3,
+            n8aoQuality: "medium",
+            passFilter:
+                activePassFilterOption === "null"
+                    ? "N8AO"
+                    : activePassFilterOption,
+            saturation: viewerApi.postproduction.getSaturation(),
+            ssaoBias: 0.15,
+            ssaoDepthAwareUpsampling: true,
+            ssaoIntensity: 4.5,
+            ssaoRadius: 1,
+            ssaoResolutionScale: 0.65,
+            ssaoRings: 5,
+            ssaoSamples: 20,
+        };
+        readPostproductionPassParams(viewerApi, postproductionParams);
         viewerApi.geometryUtils.setIfcSpacesVisibility(
             spacesParams.showIfcSpaces,
         );
@@ -512,6 +780,30 @@ export function useViewerApiGui({
         let uploadModeController: Controller | null = null;
         let useIfcSpaceController: Controller | null = null;
         let useDoubleSideMaterialController: Controller | null = null;
+        let pendingPostproductionPassFilter: PostproductionPassFilterOption | null =
+            null;
+        const n8aoControllers: Controller[] = [];
+        const ssaoControllers: Controller[] = [];
+        const syncPostproductionControllerVisibility = () => {
+            n8aoControllers.forEach((controller) => {
+                setControllerVisible(
+                    controller,
+                    postproductionParams.passFilter === "N8AO",
+                );
+            });
+            ssaoControllers.forEach((controller) => {
+                setControllerVisible(
+                    controller,
+                    postproductionParams.passFilter === "SSAO",
+                );
+            });
+        };
+        const requestPostproductionPassParamsApply = () => {
+            window.requestAnimationFrame(() => {
+                applyPostproductionPassParams(viewerApi, postproductionParams);
+                syncGuiState();
+            });
+        };
 
         function syncGuiState() {
             const hasModels = hasLoadedModels(modelsDataRef.current);
@@ -597,6 +889,29 @@ export function useViewerApiGui({
             uploadModeController?.enable(!hasModels);
             useIfcSpaceController?.enable(!hasModels);
             useDoubleSideMaterialController?.enable(!hasModels);
+
+            readPostproductionLightingParams(viewerApi, postproductionParams);
+            postproductionParams.saturation =
+                viewerApi.postproduction.getSaturation();
+            const currentActivePassFilter =
+                viewerApi.postproduction.getActivePassFilter();
+            const pendingPassFilterReady =
+                pendingPostproductionPassFilter &&
+                (pendingPostproductionPassFilter === "null"
+                    ? !currentActivePassFilter
+                    : currentActivePassFilter?.type ===
+                      pendingPostproductionPassFilter);
+
+            if (pendingPassFilterReady) {
+                pendingPostproductionPassFilter = null;
+                applyPostproductionPassParams(viewerApi, postproductionParams);
+            }
+            readPostproductionPassParams(
+                viewerApi,
+                postproductionParams,
+                !pendingPostproductionPassFilter,
+            );
+            syncPostproductionControllerVisibility();
 
             syncControllers();
         }
@@ -840,11 +1155,10 @@ export function useViewerApiGui({
                 syncGuiState();
             });
         materialModeController = addController(
-            performanceFolder.add(
-                performanceParams,
-                "materialMode",
-                ["quality", "performance"],
-            ),
+            performanceFolder.add(performanceParams, "materialMode", [
+                "quality",
+                "performance",
+            ]),
         )
             .name("materialMode")
             .onChange((value: ViewerMaterialMode | string) => {
@@ -861,11 +1175,11 @@ export function useViewerApiGui({
                 syncGuiState();
             });
         uploadModeController = addController(
-            performanceFolder.add(
-                performanceParams,
-                "uploadMode",
-                ["smooth", "balanced", "fast"],
-            ),
+            performanceFolder.add(performanceParams, "uploadMode", [
+                "smooth",
+                "balanced",
+                "fast",
+            ]),
         )
             .name("uploadMode")
             .onChange((value: ViewerUploadMode | string) => {
@@ -875,19 +1189,14 @@ export function useViewerApiGui({
                 }
 
                 const nextUploadMode =
-                    value === "smooth" || value === "fast"
-                        ? value
-                        : "balanced";
+                    value === "smooth" || value === "fast" ? value : "balanced";
 
                 uploadModeRef.current = nextUploadMode;
                 onUploadModeChange?.(nextUploadMode);
                 syncGuiState();
             });
         useDoubleSideMaterialController = addController(
-            performanceFolder.add(
-                performanceParams,
-                "useDoubleSideMaterial",
-            ),
+            performanceFolder.add(performanceParams, "useDoubleSideMaterial"),
         )
             .name("useDoubleSideMaterial")
             .onChange((value: boolean) => {
@@ -900,6 +1209,287 @@ export function useViewerApiGui({
                 onUseDoubleSideMaterialChange?.(value);
                 syncGuiState();
             });
+
+        const postproductionFolder = gui.addFolder("postproduction");
+        postproductionFolder.close();
+        addController(
+            postproductionFolder.add(postproductionParams, "passFilter", [
+                "N8AO",
+                "SSAO",
+                "null",
+            ]),
+        )
+            .name("passFilter")
+            .onChange((value: PostproductionPassFilterOption | string) => {
+                const nextPassFilter =
+                    value === "SSAO" || value === "null" ? value : "N8AO";
+
+                postproductionParams.passFilter = nextPassFilter;
+                pendingPostproductionPassFilter = nextPassFilter;
+                run(() =>
+                    api.postproduction.setPassFilter(
+                        toPostproductionPassType(nextPassFilter),
+                    ),
+                );
+                requestPostproductionPassParamsApply();
+            });
+        n8aoControllers.push(
+            addController(
+                postproductionFolder.add(
+                    postproductionParams,
+                    "n8aoAoRadius",
+                    0,
+                    10,
+                    0.1,
+                ),
+            )
+                .name("N8AO aoRadius")
+                .onChange((value: number) => {
+                    postproductionParams.n8aoAoRadius = value;
+                    applyN8AOPostproductionParams(
+                        viewerApi,
+                        postproductionParams,
+                    );
+                    syncGuiState();
+                }),
+        );
+        n8aoControllers.push(
+            addController(
+                postproductionFolder.add(
+                    postproductionParams,
+                    "n8aoIntensity",
+                    0,
+                    10,
+                    0.1,
+                ),
+            )
+                .name("N8AO intensity")
+                .onChange((value: number) => {
+                    postproductionParams.n8aoIntensity = value;
+                    applyN8AOPostproductionParams(
+                        viewerApi,
+                        postproductionParams,
+                    );
+                    syncGuiState();
+                }),
+        );
+        n8aoControllers.push(
+            addController(
+                postproductionFolder.add(postproductionParams, "n8aoQuality", [
+                    "low",
+                    "medium",
+                    "high",
+                ]),
+            )
+                .name("N8AO quality")
+                .onChange((value: N8AOQuality | string) => {
+                    postproductionParams.n8aoQuality =
+                        value === "low" || value === "high" ? value : "medium";
+                    applyN8AOPostproductionParams(
+                        viewerApi,
+                        postproductionParams,
+                    );
+                    syncGuiState();
+                }),
+        );
+        ssaoControllers.push(
+            addController(
+                postproductionFolder.add(
+                    postproductionParams,
+                    "ssaoSamples",
+                    1,
+                    64,
+                    1,
+                ),
+            )
+                .name("SSAO samples")
+                .onChange((value: number) => {
+                    postproductionParams.ssaoSamples = value;
+                    applySSAOPostproductionParams(
+                        viewerApi,
+                        postproductionParams,
+                    );
+                    syncGuiState();
+                }),
+        );
+        ssaoControllers.push(
+            addController(
+                postproductionFolder.add(
+                    postproductionParams,
+                    "ssaoRings",
+                    1,
+                    16,
+                    1,
+                ),
+            )
+                .name("SSAO rings")
+                .onChange((value: number) => {
+                    postproductionParams.ssaoRings = value;
+                    applySSAOPostproductionParams(
+                        viewerApi,
+                        postproductionParams,
+                    );
+                    syncGuiState();
+                }),
+        );
+        ssaoControllers.push(
+            addController(
+                postproductionFolder.add(
+                    postproductionParams,
+                    "ssaoRadius",
+                    0,
+                    1,
+                    0.1,
+                ),
+            )
+                .name("SSAO radius")
+                .onChange((value: number) => {
+                    postproductionParams.ssaoRadius = value;
+                    applySSAOPostproductionParams(
+                        viewerApi,
+                        postproductionParams,
+                    );
+                    syncGuiState();
+                }),
+        );
+        ssaoControllers.push(
+            addController(
+                postproductionFolder.add(
+                    postproductionParams,
+                    "ssaoIntensity",
+                    0,
+                    10,
+                    0.1,
+                ),
+            )
+                .name("SSAO intensity")
+                .onChange((value: number) => {
+                    postproductionParams.ssaoIntensity = value;
+                    applySSAOPostproductionParams(
+                        viewerApi,
+                        postproductionParams,
+                    );
+                    syncGuiState();
+                }),
+        );
+        ssaoControllers.push(
+            addController(
+                postproductionFolder.add(
+                    postproductionParams,
+                    "ssaoBias",
+                    0,
+                    1,
+                    0.01,
+                ),
+            )
+                .name("SSAO bias")
+                .onChange((value: number) => {
+                    postproductionParams.ssaoBias = value;
+                    applySSAOPostproductionParams(
+                        viewerApi,
+                        postproductionParams,
+                    );
+                    syncGuiState();
+                }),
+        );
+        ssaoControllers.push(
+            addController(
+                postproductionFolder.add(
+                    postproductionParams,
+                    "ssaoResolutionScale",
+                    0.1,
+                    1,
+                    0.05,
+                ),
+            )
+                .name("SSAO resolutionScale")
+                .onChange((value: number) => {
+                    postproductionParams.ssaoResolutionScale = value;
+                    applySSAOPostproductionParams(
+                        viewerApi,
+                        postproductionParams,
+                    );
+                    syncGuiState();
+                }),
+        );
+        ssaoControllers.push(
+            addController(
+                postproductionFolder.add(
+                    postproductionParams,
+                    "ssaoDepthAwareUpsampling",
+                ),
+            )
+                .name("SSAO depthAwareUpsampling")
+                .onChange((value: boolean) => {
+                    postproductionParams.ssaoDepthAwareUpsampling = value;
+                    applySSAOPostproductionParams(
+                        viewerApi,
+                        postproductionParams,
+                    );
+                    syncGuiState();
+                }),
+        );
+        addController(
+            postproductionFolder.add(
+                postproductionParams,
+                "saturation",
+                -1,
+                1,
+                0.01,
+            ),
+        )
+            .name("setSaturation")
+            .onChange((value: number) =>
+                run(() => api.postproduction.setSaturation(value)),
+            );
+        addController(
+            postproductionFolder.addColor(
+                postproductionParams,
+                "ambientLightColor",
+            ),
+        )
+            .name("ambientLightColor")
+            .onChange((value: string) =>
+                run(() => api.postproduction.setAmbientLightColor(value)),
+            );
+        addController(
+            postproductionFolder.add(
+                postproductionParams,
+                "ambientLightIntensity",
+                0,
+                10,
+                0.1,
+            ),
+        )
+            .name("ambientLightIntensity")
+            .onChange((value: number) =>
+                run(() => api.postproduction.setAmbientLightIntensity(value)),
+            );
+        addController(
+            postproductionFolder.addColor(
+                postproductionParams,
+                "directionalLightColor",
+            ),
+        )
+            .name("directionalLightColor")
+            .onChange((value: string) =>
+                run(() => api.postproduction.setDirectionalLightColor(value)),
+            );
+        addController(
+            postproductionFolder.add(
+                postproductionParams,
+                "directionalLightIntensity",
+                0,
+                10,
+                0.1,
+            ),
+        )
+            .name("directionalLightIntensity")
+            .onChange((value: number) =>
+                run(() =>
+                    api.postproduction.setDirectionalLightIntensity(value),
+                ),
+            );
 
         const spaceFolder = gui.addFolder("spaces");
         spaceFolder.close();

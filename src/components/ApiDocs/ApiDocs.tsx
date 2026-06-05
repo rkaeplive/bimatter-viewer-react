@@ -586,6 +586,25 @@ const apiGroups = [
         ],
     },
     {
+        name: "postproduction",
+        methods: [
+            "setPassFilter(type)",
+            "getActivePassFilter()",
+            "setSaturation(saturation)",
+            "getSaturation()",
+            "setLighting(lighting)",
+            "getLighting()",
+            "setAmbientLightColor(color)",
+            "getAmbientLightColor()",
+            "setAmbientLightIntensity(intensity)",
+            "getAmbientLightIntensity()",
+            "setDirectionalLightColor(color)",
+            "getDirectionalLightColor()",
+            "setDirectionalLightIntensity(intensity)",
+            "getDirectionalLightIntensity()",
+        ],
+    },
+    {
         name: "utils",
         methods: [
             "getUserDevice()",
@@ -665,7 +684,12 @@ const methodDescriptions: Record<string, string> = {
     getAllIds: "Returns all known element ids from the geometry index.",
     getAllLevels: "Returns all structure levels grouped by model id.",
     getAllModelLevels: "Returns structure levels for one model.",
+    getAmbientLightColor: "Returns the ambient light color.",
+    getAmbientLightIntensity: "Returns the ambient light intensity.",
+    getActivePassFilter: "Returns the active postproduction pass instance.",
     getDefaultHotkeysEnabled: "Returns default hotkey state.",
+    getDirectionalLightColor: "Returns the directional light color.",
+    getDirectionalLightIntensity: "Returns the directional light intensity.",
     getDimensions: "Returns current dimension entities.",
     getCapsActive: "Returns clipping section cap visibility.",
     getEdgesActive: "Returns clipping edge visibility.",
@@ -675,6 +699,7 @@ const methodDescriptions: Record<string, string> = {
     getIntersection: "Returns raycast intersections under the pointer.",
     getData: "Returns Viewer-owned loaded model data.",
     getLoading: "Returns current Viewer-owned model loading state.",
+    getLighting: "Returns ambient and directional lighting settings.",
     getModelGeometry:
         "Returns the Three.js group for one loaded model, or null if it is not found.",
     getModelProps: "Returns loaded model property dictionaries.",
@@ -692,6 +717,7 @@ const methodDescriptions: Record<string, string> = {
     getSelectionColor: "Returns selection highlight color.",
     getShowGridAxes: "Returns grid axes visibility.",
     getShowNavCube: "Returns navigation cube visibility.",
+    getSaturation: "Returns the current postproduction saturation value.",
     getShowStats: "Returns stats overlay visibility.",
     getSnapDistance: "Returns dimension snap distance.",
     getUnit: "Returns dimension display unit.",
@@ -710,8 +736,12 @@ const methodDescriptions: Record<string, string> = {
     rebuildModelByColors:
         "Rebuilds one model color buffer from color-to-element-id mappings.",
     setActive: "Enables or disables the tool.",
+    setAmbientLightColor: "Sets the ambient light color.",
+    setAmbientLightIntensity: "Sets the ambient light intensity.",
     setColor: "Sets color for dimensions or model elements.",
     setDefaultHotkeysEnabled: "Enables or disables built-in hotkeys.",
+    setDirectionalLightColor: "Sets the directional light color.",
+    setDirectionalLightIntensity: "Sets the directional light intensity.",
     setCapsActive: "Shows or hides clipping section caps.",
     setEdgesActive: "Shows or hides clipping section edges.",
     setEndpointScaleFactor: "Sets dimension endpoint visual scale.",
@@ -719,7 +749,12 @@ const methodDescriptions: Record<string, string> = {
     setGridAxisVisibility: "Updates one grid axis side visibility.",
     setHelpersActive: "Shows or hides clipping helpers.",
     setIfcSpacesVisibility: "Shows or hides IFC space meshes.",
+    setLighting: "Updates ambient and directional lighting settings.",
+    setPassFilter:
+        "Switches the postproduction pass filter. Use N8AO, SSAO or null.",
     setPreselectionColor: "Sets hover/preselection color.",
+    setSaturation:
+        "Sets postproduction saturation. Use values from -1 to 1.",
     setSelected:
         "Replaces or updates selected element ids and can move or fit the camera target.",
     setSelectionColor: "Sets selection highlight color.",
@@ -748,6 +783,7 @@ const apiGroupDescriptions: Record<ApiGroupName, string> = {
     dimensions: "Measurement drawing and dimension styling controls.",
     geometryUtils: "Visibility, isolation and IFC space mesh controls.",
     models: "Viewer-owned model loading, progress and reset controls.",
+    postproduction: "Postprocessing pass filter, saturation and lighting controls.",
     properties: "Access and export model metadata.",
     selector: "Selection state, colors and property-based element filtering.",
     utils: "Viewer UI switches, hotkeys and device helpers.",
@@ -1141,6 +1177,16 @@ function getParameterInfo(
             "number[]",
             `Element ids inside the target model.${optionalSuffix}`,
         ],
+        intensity: [
+            param,
+            "number",
+            `Light intensity value.${optionalSuffix}`,
+        ],
+        lighting: [
+            param,
+            "ViewerLightingSettingsUpdate",
+            `Partial ambient and directional lighting update.${optionalSuffix}`,
+        ],
         modelID: [
             param,
             "number",
@@ -1179,6 +1225,11 @@ function getParameterInfo(
             "number",
             `Dimension endpoint visual scale factor.${optionalSuffix}`,
         ],
+        saturation: [
+            param,
+            "number",
+            `Postproduction saturation from -1 to 1.${optionalSuffix}`,
+        ],
         sources: [
             param,
             "ViewerModelSource[]",
@@ -1208,6 +1259,15 @@ function getParameterInfo(
             param,
             '"top" | "right" | "bottom" | "left"',
             `Grid axis side to update.${optionalSuffix}`,
+        ],
+        type: [
+            param,
+            groupName === "postproduction"
+                ? "ViewerPostproductionPassType"
+                : "string",
+            groupName === "postproduction"
+                ? `"N8AO", "SSAO" or null.${optionalSuffix}`
+                : `Type discriminator.${optionalSuffix}`,
         ],
         unit: [param, '"m" | "mm"', `Dimension display unit.${optionalSuffix}`],
         visibility: [
@@ -1291,6 +1351,10 @@ function getSampleArg(param: string) {
     if (normalized === "first") return "true";
     if (normalized === "fittarget") return "true";
     if (normalized === "ids") return "[1, 2, 3]";
+    if (normalized === "intensity") return "1.5";
+    if (normalized === "lighting") {
+        return '{ ambient: { intensity: 1.5 }, directional: { intensity: 2 } }';
+    }
     if (normalized === "modelid") return "0";
     if (normalized === "options") {
         return "{ activeView: true, useMinVersion: true }";
@@ -1299,12 +1363,14 @@ function getSampleArg(param: string) {
     if (normalized === "recursive") return "true";
     if (normalized === "reset") return "true";
     if (normalized === "scale") return "0.015";
+    if (normalized === "saturation") return "0.25";
     if (normalized === "selected") return "true";
     if (normalized === "setname") return '"Mechanical"';
     if (normalized === "settarget") return "true";
     if (normalized === "show") return "true";
     if (normalized === "side") return '"left"';
     if (normalized === "sources") return '["/models/model.bmt"]';
+    if (normalized === "type") return '"N8AO"';
     if (normalized === "unit") return '"mm"';
     if (normalized === "visibility") return "{ top: false, bottom: true }";
     if (normalized === "visible") return "true";
@@ -1364,6 +1430,31 @@ function getMethodExample(groupName: ApiGroupName, signature: string) {
         methodName === "convertIfcFilesToBmtInWorker"
     ) {
         return converterWorkerCode;
+    }
+
+    if (groupName === "postproduction") {
+        if (methodName === "setPassFilter") {
+            return `viewerRef.current?.postproduction.setPassFilter("N8AO");
+viewerRef.current?.postproduction.setPassFilter("SSAO");
+viewerRef.current?.postproduction.setPassFilter(null);`;
+        }
+
+        if (methodName === "setSaturation") {
+            return `viewerRef.current?.postproduction.setSaturation(0.25);`;
+        }
+
+        if (methodName === "setLighting") {
+            return `viewerRef.current?.postproduction.setLighting({
+    ambient: {
+        color: "#ffffff",
+        intensity: 1.5,
+    },
+    directional: {
+        color: "#ffffff",
+        intensity: 2,
+    },
+});`;
+        }
     }
 
     if (groupName === "geometryUtils") {
