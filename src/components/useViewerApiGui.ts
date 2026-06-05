@@ -227,7 +227,14 @@ const collectorIfcClasses: CollectorIfcClass[] = [
 ];
 const allCollectorLevelsKey = "__all_levels__";
 const noCollectorPropertiesKey = "__no_properties__";
-const collectorPropertyOperators = [">", "<", "=", "!=", "has"] as const;
+const collectorPropertyOperators = [
+    ">",
+    "<",
+    "=",
+    "!=",
+    "has",
+    "!has",
+] as const;
 type CollectorPropertyOperator = (typeof collectorPropertyOperators)[number];
 const elementPropertyMetaKeys = new Set(["id", "guid", "props", "sets"]);
 const propertySetMetaKeys = new Set([
@@ -492,7 +499,11 @@ function compareCollectorPropertyValue(
             .toLowerCase()
             .includes(expectedValue.trim().toLowerCase());
     }
-
+    if (operator === "!has") {
+        return !stringifyPropertyValue(foundValue)
+            .toLowerCase()
+            .includes(expectedValue.trim().toLowerCase());
+    }
     if (operator === "=") {
         const foundNumber = getComparableNumber(foundValue);
         const expectedNumber = getComparableNumber(expectedValue);
