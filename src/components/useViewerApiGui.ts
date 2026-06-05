@@ -1,6 +1,9 @@
 import { useEffect, useRef } from "react";
 import GUI, { type Controller } from "lil-gui";
 import type {
+    BmtElementProps,
+    BmtPropertySet,
+    BmtPropertyValue,
     IfcClass,
     ViewerApi,
     ViewerLoadedModels,
@@ -58,8 +61,13 @@ type ClippingParams = {
 type CollectorParams = {
     collect: () => void;
     ifcClass: CollectorIfcClass;
+    loadProperties: () => void;
     levelKey: string;
     modelID: number;
+    propertyName: string;
+    propertyOperator: CollectorPropertyOperator;
+    propertyValue: string;
+    selectByProperty: () => void;
 };
 
 type UtilsParams = {
@@ -218,6 +226,33 @@ const collectorIfcClasses: CollectorIfcClass[] = [
     ...ifcClasses,
 ];
 const allCollectorLevelsKey = "__all_levels__";
+const noCollectorPropertiesKey = "__no_properties__";
+const collectorPropertyOperators = [">", "<", "=", "!=", "has"] as const;
+type CollectorPropertyOperator = (typeof collectorPropertyOperators)[number];
+const elementPropertyMetaKeys = new Set(["id", "guid", "props", "sets"]);
+const propertySetMetaKeys = new Set([
+    "id",
+    "guid",
+    "isQuantities",
+    "name",
+    "Name",
+    "props",
+]);
+const propertyValueKeys = [
+    "NominalValue",
+    "nominalValue",
+    "Value",
+    "value",
+    "LengthValue",
+    "AreaValue",
+    "VolumeValue",
+    "CountValue",
+    "WeightValue",
+    "TimeValue",
+    "IntegerValue",
+    "RealValue",
+    "BooleanValue",
+] as const;
 
 function parseIds(value: string) {
     if (!value.trim()) return [];
@@ -232,6 +267,263 @@ function getFiniteNumber(value: unknown, fallback: number) {
     return typeof value === "number" && Number.isFinite(value)
         ? value
         : fallback;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function hasOwnKey(record: Record<string, unknown>, key: string) {
+    return Object.prototype.hasOwnProperty.call(record, key);
+}
+
+function addPropertyName(names: Set<string>, key: string) {
+    const name = key.trim();
+    if (name) {
+        names.add(name);
+    }
+}
+
+function collectRecordPropertyNames(
+    names: Set<string>,
+    record: Record<string, unknown> | undefined,
+    metaKeys: Set<string>,
+) {
+    if (!record) return;
+
+    Object.keys(record).forEach((key) => {
+        if (!metaKeys.has(key)) {
+            addPropertyName(names, key);
+        }
+    });
+}
+
+function getNamedPropertyLabel(value: Record<string, unknown>, index: number) {
+    const rawName =
+        value.Name ?? value.name ?? value.DisplayName ?? value.displayName;
+
+    return typeof rawName === "string" && rawName.trim()
+        ? rawName.trim()
+        : `Property ${index + 1}`;
+}
+
+function collectArrayPropertyNames(names: Set<string>, value: unknown) {
+    if (!Array.isArray(value)) return;
+
+    value.forEach((item, index) => {
+        if (isRecord(item)) {
+            addPropertyName(names, getNamedPropertyLabel(item, index));
+        }
+    });
+}
+
+function collectElementPropertyNames(
+    names: Set<string>,
+    props: BmtElementProps,
+) {
+    collectRecordPropertyNames(
+        names,
+        props as Record<string, unknown>,
+        elementPropertyMetaKeys,
+    );
+
+    if (isRecord(props.props)) {
+        collectRecordPropertyNames(names, props.props, new Set());
+    } else {
+        collectArrayPropertyNames(names, props.props);
+    }
+
+    props.sets?.forEach((set) => {
+        collectRecordPropertyNames(
+            names,
+            set as Record<string, unknown>,
+            propertySetMetaKeys,
+        );
+
+        if (isRecord(set.props)) {
+            collectRecordPropertyNames(names, set.props, new Set());
+        } else {
+            collectArrayPropertyNames(names, set.props);
+        }
+    });
+}
+
+function getModelPropertyNames(modelsData: ViewerLoadedModels | undefined) {
+    const names = new Set<string>();
+
+    Object.values(modelsData ?? {}).forEach((model) => {
+        Object.values(model.props ?? {}).forEach((props) => {
+            collectElementPropertyNames(names, props);
+        });
+    });
+
+    return Array.from(names).sort((first, second) =>
+        first.localeCompare(second),
+    );
+}
+
+function getModelPropertyOptions(modelsData?: ViewerLoadedModels) {
+    const propertyNames = getModelPropertyNames(modelsData);
+
+    if (!propertyNames.length) {
+        return { "No properties": noCollectorPropertiesKey };
+    }
+
+    return Object.fromEntries(
+        propertyNames.map((propertyName) => [propertyName, propertyName]),
+    );
+}
+
+function getNamedPropertyValue(value: Record<string, unknown>) {
+    for (const key of propertyValueKeys) {
+        if (value[key] !== undefined) {
+            return value[key];
+        }
+    }
+
+    return Object.fromEntries(
+        Object.entries(value).filter(
+            ([key]) =>
+                !["Name", "name", "Description", "description"].includes(key),
+        ),
+    );
+}
+
+function getArrayPropertyValue(value: unknown, propName: string) {
+    if (!Array.isArray(value)) return undefined;
+
+    for (let index = 0; index < value.length; index += 1) {
+        const item = value[index];
+        if (!isRecord(item)) continue;
+        if (getNamedPropertyLabel(item, index) === propName) {
+            return getNamedPropertyValue(item);
+        }
+    }
+}
+
+function getRecordPropertyValue(
+    record: Record<string, unknown> | undefined,
+    propName: string,
+) {
+    if (!record || !hasOwnKey(record, propName)) return undefined;
+
+    return record[propName];
+}
+
+function getSetPropertyValue(set: BmtPropertySet, propName: string) {
+    const directValue = getRecordPropertyValue(
+        set as Record<string, unknown>,
+        propName,
+    );
+
+    if (directValue !== undefined) return directValue;
+
+    if (isRecord(set.props)) {
+        return getRecordPropertyValue(set.props, propName);
+    }
+
+    return getArrayPropertyValue(set.props, propName);
+}
+
+function getElementPropertyValue(
+    props: BmtElementProps,
+    propName: string,
+): BmtPropertyValue | unknown {
+    const directValue = getRecordPropertyValue(
+        props as Record<string, unknown>,
+        propName,
+    );
+
+    if (directValue !== undefined) return directValue;
+
+    if (isRecord(props.props)) {
+        const nestedValue = getRecordPropertyValue(props.props, propName);
+        if (nestedValue !== undefined) return nestedValue;
+    } else {
+        const arrayValue = getArrayPropertyValue(props.props, propName);
+        if (arrayValue !== undefined) return arrayValue;
+    }
+
+    for (const set of props.sets ?? []) {
+        const setValue = getSetPropertyValue(set, propName);
+        if (setValue !== undefined) return setValue;
+    }
+}
+
+function stringifyPropertyValue(value: unknown): string {
+    if (value === null || value === undefined) return "";
+    if (typeof value === "string") return value;
+    if (
+        typeof value === "number" ||
+        typeof value === "boolean" ||
+        typeof value === "bigint"
+    ) {
+        return String(value);
+    }
+
+    if (Array.isArray(value)) {
+        return value.map(stringifyPropertyValue).join(", ");
+    }
+
+    try {
+        return JSON.stringify(value);
+    } catch {
+        return String(value);
+    }
+}
+
+function getComparableNumber(value: unknown) {
+    const text = stringifyPropertyValue(value).replace(",", ".").trim();
+    if (!text) return null;
+
+    const numericValue = Number(text);
+    return Number.isFinite(numericValue) ? numericValue : null;
+}
+
+function compareCollectorPropertyValue(
+    foundValue: unknown,
+    operator: CollectorPropertyOperator,
+    expectedValue: string,
+) {
+    if (foundValue === undefined) return false;
+
+    if (operator === "has") {
+        return stringifyPropertyValue(foundValue)
+            .toLowerCase()
+            .includes(expectedValue.trim().toLowerCase());
+    }
+
+    if (operator === "=") {
+        const foundNumber = getComparableNumber(foundValue);
+        const expectedNumber = getComparableNumber(expectedValue);
+        if (foundNumber !== null && expectedNumber !== null) {
+            return foundNumber === expectedNumber;
+        }
+
+        return (
+            stringifyPropertyValue(foundValue).trim().toLowerCase() ===
+            expectedValue.trim().toLowerCase()
+        );
+    }
+    if (operator === "!=") {
+        const foundNumber = getComparableNumber(foundValue);
+        const expectedNumber = getComparableNumber(expectedValue);
+        if (foundNumber !== null && expectedNumber !== null) {
+            return foundNumber !== expectedNumber;
+        }
+
+        return (
+            stringifyPropertyValue(foundValue).trim().toLowerCase() !==
+            expectedValue.trim().toLowerCase()
+        );
+    }
+    const foundNumber = getComparableNumber(foundValue);
+    const expectedNumber = getComparableNumber(expectedValue);
+    if (foundNumber === null || expectedNumber === null) return false;
+
+    return operator === ">"
+        ? foundNumber > expectedNumber
+        : foundNumber < expectedNumber;
 }
 
 function getColorInputValue(value: unknown, fallback = "#ffffff") {
@@ -671,6 +963,8 @@ export function useViewerApiGui({
             edgesActive: api.clipping.getEdgesActive(),
             helpersActive: api.clipping.getHelpersActive(),
         };
+        let collectorPropertiesLoaded = false;
+        let collectorPropertyModelID: number | null = null;
         const collectorParams: CollectorParams = {
             collect: () => {
                 const modelID = Number(collectorParams.modelID);
@@ -701,8 +995,65 @@ export function useViewerApiGui({
                 });
             },
             ifcClass: defaultIfcClass,
+            loadProperties: () => {
+                collectorPropertiesLoaded = true;
+                const level = getCollectorLevelByKey(
+                    api,
+                    collectorParams.levelKey,
+                );
+                collectorPropertyModelID =
+                    level?.modelID ?? Number(collectorParams.modelID);
+                syncGuiState();
+            },
             levelKey: allCollectorLevelsKey,
             modelID: getFirstModelID(modelsDataRef.current),
+            propertyName: noCollectorPropertiesKey,
+            propertyOperator: "has",
+            propertyValue: "",
+            selectByProperty: () => {
+                const modelID = Number(collectorParams.modelID);
+                const modelIDs = getModelIDs(modelsDataRef.current);
+                if (!modelIDs.includes(modelID)) return;
+                if (collectorParams.propertyName === noCollectorPropertiesKey)
+                    return;
+
+                const level = getCollectorLevelByKey(
+                    api,
+                    collectorParams.levelKey,
+                );
+                const selectedModelID = level?.modelID ?? modelID;
+                const collector = level
+                    ? api.selector.collector().ofLevel(level)
+                    : api.selector.collector().ofModel(modelID);
+
+                if (collectorParams.ifcClass !== allIfcClassesKey) {
+                    collector.ofType(collectorParams.ifcClass);
+                }
+
+                const elementIDs = collector
+                    .Where((element) =>
+                        compareCollectorPropertyValue(
+                            getElementPropertyValue(
+                                element.props,
+                                collectorParams.propertyName,
+                            ),
+                            collectorParams.propertyOperator,
+                            collectorParams.propertyValue,
+                        ),
+                    )
+                    .toElementIds();
+
+                api.selector.setSelected(selectedModelID, elementIDs, true);
+                console.info("Collected elements by property", {
+                    elementIDs,
+                    ifcClass: collectorParams.ifcClass,
+                    level,
+                    modelID: selectedModelID,
+                    propertyName: collectorParams.propertyName,
+                    propertyOperator: collectorParams.propertyOperator,
+                    propertyValue: collectorParams.propertyValue,
+                });
+            },
         };
         const dimensionsParams: DimensionsParams = {
             active: api.dimensions.getActive(),
@@ -775,6 +1126,11 @@ export function useViewerApiGui({
         let collectorModelIDController: Controller | null = null;
         let collectorLevelOptionsKey: string | null = null;
         let collectorLevelController: Controller | null = null;
+        let collectorPropertyOptionsKey: string | null = null;
+        let collectorPropertyNameController: Controller | null = null;
+        let collectorPropertyOperatorController: Controller | null = null;
+        let collectorPropertyValueController: Controller | null = null;
+        let collectorPropertySelectController: Controller | null = null;
         let colorizeModelIDController: Controller | null = null;
         let materialModeController: Controller | null = null;
         let uploadModeController: Controller | null = null;
@@ -784,6 +1140,12 @@ export function useViewerApiGui({
             null;
         const n8aoControllers: Controller[] = [];
         const ssaoControllers: Controller[] = [];
+        const collectorPropertyControllers: Controller[] = [];
+        const setCollectorPropertyControllersVisible = (visible: boolean) => {
+            collectorPropertyControllers.forEach((controller) => {
+                setControllerVisible(controller, visible);
+            });
+        };
         const syncPostproductionControllerVisibility = () => {
             n8aoControllers.forEach((controller) => {
                 setControllerVisible(
@@ -845,6 +1207,65 @@ export function useViewerApiGui({
                 );
                 colorizeModelIDController?.enable(modelIDs.length > 0);
             }
+            const collectorLevel = getCollectorLevelByKey(
+                viewerApi,
+                collectorParams.levelKey,
+            );
+            const collectorEffectiveModelID =
+                collectorLevel?.modelID ?? collectorParams.modelID;
+
+            if (
+                collectorPropertyModelID !== null &&
+                collectorPropertyModelID !== collectorEffectiveModelID
+            ) {
+                collectorPropertiesLoaded = false;
+                collectorPropertyModelID = null;
+                collectorParams.propertyName = noCollectorPropertiesKey;
+                collectorPropertyOptionsKey = null;
+            }
+
+            const collectorModelData =
+                modelsDataRef.current?.[collectorEffectiveModelID];
+            const collectorPropertyOptions =
+                collectorPropertiesLoaded && collectorModelData
+                    ? getModelPropertyOptions({
+                          [collectorEffectiveModelID]: collectorModelData,
+                      })
+                    : { "No properties": noCollectorPropertiesKey };
+            const collectorPropertyValues = Object.values(
+                collectorPropertyOptions,
+            );
+            const nextCollectorPropertyOptionsKey = getControllerOptionsKey(
+                collectorPropertyOptions,
+            );
+            if (
+                collectorPropertyOptionsKey !== nextCollectorPropertyOptionsKey
+            ) {
+                collectorPropertyOptionsKey = nextCollectorPropertyOptionsKey;
+                collectorPropertyNameController?.options(
+                    collectorPropertyOptions,
+                );
+            }
+
+            if (
+                !collectorPropertyValues.includes(collectorParams.propertyName)
+            ) {
+                collectorParams.propertyName =
+                    collectorPropertyValues[0] ?? noCollectorPropertiesKey;
+            }
+
+            const hasCollectorProperties =
+                collectorPropertiesLoaded &&
+                collectorPropertyValues.some(
+                    (value) => value !== noCollectorPropertiesKey,
+                );
+
+            setCollectorPropertyControllersVisible(collectorPropertiesLoaded);
+            collectorPropertyNameController?.enable(hasCollectorProperties);
+            collectorPropertyOperatorController?.enable(hasCollectorProperties);
+            collectorPropertyValueController?.enable(hasCollectorProperties);
+            collectorPropertySelectController?.enable(hasCollectorProperties);
+
             dimensionsParams.active = viewerApi.dimensions.getActive();
             dimensionsParams.snapDistance =
                 viewerApi.dimensions.getSnapDistance();
@@ -1023,6 +1444,35 @@ export function useViewerApiGui({
                 collectorParams.levelKey = value;
                 syncGuiState();
             });
+        const collectorPropertyFolder =
+            collectorFolder.addFolder("property filter");
+        addController(
+            collectorPropertyFolder.add(collectorParams, "loadProperties"),
+        ).name("Загрузить свойства");
+        collectorPropertyNameController = addController(
+            collectorPropertyFolder.add(
+                collectorParams,
+                "propertyName",
+                getModelPropertyOptions(),
+            ),
+        ).name("property");
+        collectorPropertyControllers.push(collectorPropertyNameController);
+        collectorPropertyOperatorController = addController(
+            collectorPropertyFolder.add(
+                collectorParams,
+                "propertyOperator",
+                collectorPropertyOperators,
+            ),
+        ).name("operator");
+        collectorPropertyControllers.push(collectorPropertyOperatorController);
+        collectorPropertyValueController = addController(
+            collectorPropertyFolder.add(collectorParams, "propertyValue"),
+        ).name("value");
+        collectorPropertyControllers.push(collectorPropertyValueController);
+        collectorPropertySelectController = addController(
+            collectorPropertyFolder.add(collectorParams, "selectByProperty"),
+        ).name("select");
+        collectorPropertyControllers.push(collectorPropertySelectController);
         addController(collectorFolder.add(collectorParams, "collect")).name(
             "collect",
         );
