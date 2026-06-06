@@ -853,42 +853,34 @@ export function useViewerApiGui({
 
     useEffect(() => {
         materialModeRef.current = materialMode;
-        syncGuiRef.current?.();
     }, [materialMode]);
 
     useEffect(() => {
         performanceModeRef.current = performanceMode;
-        syncGuiRef.current?.();
     }, [performanceMode]);
 
     useEffect(() => {
         uploadModeRef.current = uploadMode;
-        syncGuiRef.current?.();
     }, [uploadMode]);
 
     useEffect(() => {
         showIfcSpacesRef.current = showIfcSpaces;
-        syncGuiRef.current?.();
     }, [showIfcSpaces]);
 
     useEffect(() => {
         useDoubleSideMaterialRef.current = useDoubleSideMaterial;
-        syncGuiRef.current?.();
     }, [useDoubleSideMaterial]);
 
     useEffect(() => {
         useIfcSpaceRef.current = useIfcSpace;
-        syncGuiRef.current?.();
     }, [useIfcSpace]);
 
     useEffect(() => {
         usePerformanceMovingRef.current = usePerformanceMoving;
-        syncGuiRef.current?.();
     }, [usePerformanceMoving]);
 
     useEffect(() => {
         useWebGPURef.current = useWebGPU;
-        syncGuiRef.current?.();
     }, [useWebGPU]);
 
     useEffect(() => {
@@ -1979,10 +1971,7 @@ export function useViewerApiGui({
         syncGuiRef.current = syncGuiState;
         syncGuiState();
 
-        const syncInterval = window.setInterval(syncGuiState, 500);
-
         return () => {
-            window.clearInterval(syncInterval);
             syncGuiRef.current = null;
             gui.destroy();
         };

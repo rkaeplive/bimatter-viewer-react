@@ -616,6 +616,7 @@ function ViewerDemo() {
                         </div>
                     </div>
                     <Viewer
+                        dpr={1}
                         autoFitCamera
                         ref={viewerRef}
                         materialMode={materialMode}
