@@ -220,7 +220,11 @@ const modelLoadOptions = [
         "boolean",
         "Clears previous Viewer-owned model data before loading.",
     ],
-    ["fitToView", "boolean", "Fits the camera for this load. Enabled by default."],
+    [
+        "fitToView",
+        "boolean",
+        "Fits the camera for this load. Enabled by default.",
+    ],
     [
         "onModelsDataChange",
         "(modelsData) => void",
@@ -472,6 +476,7 @@ const hotkeyRows = [
     ["H", "Visibility", "Hide selected elements."],
     ["I", "Visibility", "Isolate selected elements."],
     ["P", "Clipping", "Create clipping plane by model intersection."],
+    ["M", "Dimensions", "Toggle dimension drawing mode"],
 ] as const;
 
 const apiGroups = [
@@ -712,7 +717,8 @@ const methodDescriptions: Record<string, string> = {
         "Returns one property value from element props by parameter and optional property set name.",
     getPlanes: "Returns current clipping planes.",
     getPreselectionColor: "Returns hover/preselection color.",
-    getProgress: "Returns the latest Viewer-owned model loading progress event.",
+    getProgress:
+        "Returns the latest Viewer-owned model loading progress event.",
     getSelected: "Returns selected element ids grouped by model id.",
     getSelectionColor: "Returns selection highlight color.",
     getShowGridAxes: "Returns grid axes visibility.",
@@ -726,7 +732,8 @@ const methodDescriptions: Record<string, string> = {
     hideSelected: "Hides the current selection.",
     isolateByIds: "Shows only specific element ids.",
     isolateSelected: "Shows only currently selected elements.",
-    loadModels: "Loads BMT or IFC sources through the Viewer-owned model state.",
+    loadModels:
+        "Loads BMT or IFC sources through the Viewer-owned model state.",
     removeSelected: "Removes element ids from the current selection.",
     reset: "Clears Viewer-owned model data, progress and selection state.",
     resetIsolation: "Clears hide and isolate state.",
@@ -753,8 +760,7 @@ const methodDescriptions: Record<string, string> = {
     setPassFilter:
         "Switches the postproduction pass filter. Use N8AO, SSAO or null.",
     setPreselectionColor: "Sets hover/preselection color.",
-    setSaturation:
-        "Sets postproduction saturation. Use values from -1 to 1.",
+    setSaturation: "Sets postproduction saturation. Use values from -1 to 1.",
     setSelected:
         "Replaces or updates selected element ids and can move or fit the camera target.",
     setSelectionColor: "Sets selection highlight color.",
@@ -783,7 +789,8 @@ const apiGroupDescriptions: Record<ApiGroupName, string> = {
     dimensions: "Measurement drawing and dimension styling controls.",
     geometryUtils: "Visibility, isolation and IFC space mesh controls.",
     models: "Viewer-owned model loading, progress and reset controls.",
-    postproduction: "Postprocessing pass filter, saturation and lighting controls.",
+    postproduction:
+        "Postprocessing pass filter, saturation and lighting controls.",
     properties: "Access and export model metadata.",
     selector: "Selection state, colors and property-based element filtering.",
     utils: "Viewer UI switches, hotkeys and device helpers.",
@@ -1177,11 +1184,7 @@ function getParameterInfo(
             "number[]",
             `Element ids inside the target model.${optionalSuffix}`,
         ],
-        intensity: [
-            param,
-            "number",
-            `Light intensity value.${optionalSuffix}`,
-        ],
+        intensity: [param, "number", `Light intensity value.${optionalSuffix}`],
         lighting: [
             param,
             "ViewerLightingSettingsUpdate",
@@ -1198,9 +1201,9 @@ function getParameterInfo(
                 ? "ViewerLoadModelsOptions"
                 : groupName === "properties"
                   ? "ViewerPropertiesExcelOptions"
-                : methodName === "convertIfcFilesToBmtInWorker"
-                  ? "BmtConverterWorkerClientOptions"
-                : "ViewerBmtConverterOptions",
+                  : methodName === "convertIfcFilesToBmtInWorker"
+                    ? "BmtConverterWorkerClientOptions"
+                    : "ViewerBmtConverterOptions",
             groupName === "models"
                 ? `Model loading options.${optionalSuffix}`
                 : `Export options.${optionalSuffix}`,
@@ -1317,8 +1320,7 @@ function getOptionsTableDefinitionForMethod(
 
     if (
         groupName === "converter" &&
-        (methodName === "convertToBmt" ||
-            methodName === "convertIfcFileToBmt")
+        (methodName === "convertToBmt" || methodName === "convertIfcFileToBmt")
     ) {
         return optionsTableDefinitions.ViewerBmtConverterOptions;
     }
@@ -1353,7 +1355,7 @@ function getSampleArg(param: string) {
     if (normalized === "ids") return "[1, 2, 3]";
     if (normalized === "intensity") return "1.5";
     if (normalized === "lighting") {
-        return '{ ambient: { intensity: 1.5 }, directional: { intensity: 2 } }';
+        return "{ ambient: { intensity: 1.5 }, directional: { intensity: 2 } }";
     }
     if (normalized === "modelid") return "0";
     if (normalized === "options") {
@@ -1571,11 +1573,10 @@ function ApiGroupExtra({ groupName }: { groupName: ApiGroupName }) {
                 </h2>
                 <p>
                     <code>selector.collector()</code> returns a chainable
-                    collector. It can filter by{" "}
-                    <code>ViewerModelLevel</code> from the properties API; omit{" "}
-                    <code>ofType()</code> when you want all classes.
-                    The demo GUI's <code>allClasses</code> option uses this
-                    same pattern.
+                    collector. It can filter by <code>ViewerModelLevel</code>{" "}
+                    from the properties API; omit <code>ofType()</code> when you
+                    want all classes. The demo GUI's <code>allClasses</code>{" "}
+                    option uses this same pattern.
                 </p>
                 <CodeBlock>{selectorCollectorCode}</CodeBlock>
                 <CodeBlock>{selectorCollectorAllClassesCode}</CodeBlock>
@@ -1905,8 +1906,8 @@ export function ApiDocs() {
                                 <h2>Models API</h2>
                                 <p>
                                     Use <code>viewer.models</code> when your app
-                                    needs file uploads, progress UI, clearing the
-                                    viewer or worker loading.
+                                    needs file uploads, progress UI, clearing
+                                    the viewer or worker loading.
                                 </p>
                                 <CodeBlock>{modelsApiCode}</CodeBlock>
                                 <OptionsTypeTable
@@ -1942,8 +1943,7 @@ export function ApiDocs() {
                                     <code>usePerformanceMoving</code> to lower
                                     DPR only while the camera is moving.{" "}
                                     <code>viewer.models.loadModels</code> can
-                                    also store{" "}
-                                    <code>materialMode</code> and{" "}
+                                    also store <code>materialMode</code> and{" "}
                                     <code>useDoubleSideMaterial</code> in model
                                     render settings.
                                 </p>
@@ -1960,9 +1960,7 @@ export function ApiDocs() {
                                     files directly. With <code>activeView</code>
                                     , hidden and isolated elements are
                                     respected. Use{" "}
-                                    <code>
-                                        convertIfcFilesToBmtInWorker()
-                                    </code>{" "}
+                                    <code>convertIfcFilesToBmtInWorker()</code>{" "}
                                     for IFC-to-BMT conversion outside the main
                                     thread.
                                 </p>
