@@ -184,7 +184,10 @@ function ViewerDemo() {
     const [rendererInfo, setRendererInfo] = useState<RendererInfoState>(
         createEmptyRendererInfo,
     );
-
+    function setCameraType(value: "perspective" | "orthographic") {
+        if (!viewerApi) return;
+        viewerApi.camera.setProjection(value);
+    }
     const selectionInfo = useMemo(() => getSelectionInfo(selected), [selected]);
     useViewerApiGui({
         api: viewerApi,
@@ -198,6 +201,7 @@ function ViewerDemo() {
         onShowIfcSpacesChange: setShowSpaces,
         onUseDoubleSideMaterialChange: setUseDoubleSideMaterial,
         onUseIfcSpaceChange: setUseIfcSpace,
+        onCameraTypeChange: setCameraType,
         performanceMode,
         selected,
         showIfcSpaces: showSpaces,

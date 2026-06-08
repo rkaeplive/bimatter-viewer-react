@@ -482,7 +482,12 @@ const hotkeyRows = [
 const apiGroups = [
     {
         name: "camera",
-        methods: ["fitCamera()", "getIntersection(first?)"],
+        methods: [
+            "fitCamera()",
+            "getIntersection(first?)",
+            "setProjection(projectionType)",
+            "getProjection()",
+        ],
     },
     {
         name: "models",
@@ -702,6 +707,9 @@ const methodDescriptions: Record<string, string> = {
     getHelpersActive: "Returns clipping helper visibility.",
     getIfcSpacesVisibility: "Returns IFC space mesh visibility.",
     getIntersection: "Returns raycast intersections under the pointer.",
+    getProjection: "Returns current camera projection type.",
+    setProjection:
+        "Sets camera projection type to perspective or orthographic.",
     getData: "Returns Viewer-owned loaded model data.",
     getLoading: "Returns current Viewer-owned model loading state.",
     getLighting: "Returns ambient and directional lighting settings.",
@@ -1173,6 +1181,11 @@ function getParameterInfo(
             param,
             "boolean",
             `When true, returns only the first intersection.${optionalSuffix}`,
+        ],
+        projectionType: [
+            param,
+            '"perspective" | "orthographic"',
+            `Camera projection type.${optionalSuffix}`,
         ],
         fitTarget: [
             param,

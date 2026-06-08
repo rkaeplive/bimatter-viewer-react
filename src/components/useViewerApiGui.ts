@@ -22,6 +22,7 @@ type ViewerApiGuiOptions = {
     onPerformanceModeChange?: (performanceMode: boolean) => void;
     onUploadModeChange?: (uploadMode: ViewerUploadMode) => void;
     onShowIfcSpacesChange?: (showIfcSpaces: boolean) => void;
+    onCameraTypeChange?: (cameraType: "orthographic" | "perspective") => void;
     onUseDoubleSideMaterialChange?: (useDoubleSideMaterial: boolean) => void;
     onUseIfcSpaceChange?: (useIfcSpace: boolean) => void;
     onUsePerformanceMovingChange?: (usePerformanceMoving: boolean) => void;
@@ -85,7 +86,9 @@ type SpacesParams = {
     showIfcSpaces: boolean;
     useIfcSpace: boolean;
 };
-
+type CameraParams = {
+    cameraType: "orthographic" | "perspective";
+};
 type PerformanceParams = {
     materialMode: ViewerMaterialMode;
     performanceMode: boolean;
@@ -818,6 +821,7 @@ export function useViewerApiGui({
     onShowIfcSpacesChange,
     onUseDoubleSideMaterialChange,
     onUseIfcSpaceChange,
+    onCameraTypeChange,
     onUsePerformanceMovingChange,
     onUseWebGPUChange,
     performanceMode = false,
@@ -840,7 +844,7 @@ export function useViewerApiGui({
     const usePerformanceMovingRef = useRef(usePerformanceMoving);
     const useWebGPURef = useRef(useWebGPU);
     const syncGuiRef = useRef<(() => void) | null>(null);
-
+    const cameraTypeRef = useRef<"orthographic" | "perspective">("perspective");
     useEffect(() => {
         selectedRef.current = selected;
         syncGuiRef.current?.();
@@ -1085,6 +1089,9 @@ export function useViewerApiGui({
             showIfcSpaces: showIfcSpacesRef.current,
             useIfcSpace: useIfcSpaceRef.current,
         };
+        const cameraParams: CameraParams = {
+            cameraType: cameraTypeRef.current,
+        };
         const performanceParams: PerformanceParams = {
             materialMode: materialModeRef.current,
             performanceMode: performanceModeRef.current,
@@ -1136,7 +1143,6 @@ export function useViewerApiGui({
         let collectorPropertySelectController: Controller | null = null;
         let colorizeModelIDController: Controller | null = null;
         let materialModeController: Controller | null = null;
-        let uploadModeController: Controller | null = null;
         let useIfcSpaceController: Controller | null = null;
         let useDoubleSideMaterialController: Controller | null = null;
         let pendingPostproductionPassFilter: PostproductionPassFilterOption | null =
@@ -1310,7 +1316,6 @@ export function useViewerApiGui({
                 usePerformanceMovingRef.current;
             performanceParams.useWebGPU = useWebGPURef.current;
             materialModeController?.enable(!hasModels);
-            uploadModeController?.enable(!hasModels);
             useIfcSpaceController?.enable(!hasModels);
             useDoubleSideMaterialController?.enable(!hasModels);
 
@@ -1627,27 +1632,7 @@ export function useViewerApiGui({
                 onMaterialModeChange?.(nextMaterialMode);
                 syncGuiState();
             });
-        uploadModeController = addController(
-            performanceFolder.add(performanceParams, "uploadMode", [
-                "smooth",
-                "balanced",
-                "fast",
-            ]),
-        )
-            .name("uploadMode")
-            .onChange((value: ViewerUploadMode | string) => {
-                if (hasLoadedModels(modelsDataRef.current)) {
-                    syncGuiState();
-                    return;
-                }
 
-                const nextUploadMode =
-                    value === "smooth" || value === "fast" ? value : "balanced";
-
-                uploadModeRef.current = nextUploadMode;
-                onUploadModeChange?.(nextUploadMode);
-                syncGuiState();
-            });
         useDoubleSideMaterialController = addController(
             performanceFolder.add(performanceParams, "useDoubleSideMaterial"),
         )
@@ -1968,6 +1953,24 @@ export function useViewerApiGui({
                 run(() => api.geometryUtils.setIfcSpacesVisibility(value));
             });
 
+        const cameraFolder = gui.addFolder("camera");
+        cameraFolder.close();
+        addController(
+            cameraFolder.add(cameraParams, "cameraType", [
+                "perspective",
+                "orthographic",
+            ]),
+        )
+            .name("cameraType")
+            .onChange((value: "orthographic" | "perspective") => {
+                const nextCameraType =
+                    value === "orthographic" ? "orthographic" : "perspective";
+
+                cameraTypeRef.current = nextCameraType;
+                onCameraTypeChange?.(nextCameraType);
+                syncGuiState();
+            });
+
         syncGuiRef.current = syncGuiState;
         syncGuiState();
 
@@ -1983,6 +1986,7 @@ export function useViewerApiGui({
         onShowIfcSpacesChange,
         onUseDoubleSideMaterialChange,
         onUseIfcSpaceChange,
+        onCameraTypeChange,
         onUsePerformanceMovingChange,
         onUseWebGPUChange,
     ]);
