@@ -529,6 +529,9 @@ const apiGroups = [
             "getSelectionColor()",
             "setPreselectionColor(color)",
             "getPreselectionColor()",
+            "setPreselectionEnabled(enabled)",
+            "getPreselectionEnabled()",
+            "togglePreselection()",
         ],
     },
     {
@@ -621,6 +624,9 @@ const apiGroups = [
             "getDefaultHotkeysEnabled()",
             "setDefaultHotkeysEnabled(enabled)",
             "toggleDefaultHotkeys()",
+            "getPreselectionEnabled()",
+            "setPreselectionEnabled(enabled)",
+            "togglePreselection()",
             "getShowStats()",
             "setShowStats(show)",
             "getShowNavCube()",
@@ -725,6 +731,8 @@ const methodDescriptions: Record<string, string> = {
         "Returns one property value from element props by parameter and optional property set name.",
     getPlanes: "Returns current clipping planes.",
     getPreselectionColor: "Returns hover/preselection color.",
+    getPreselectionEnabled:
+        "Returns whether hover/preselection highlighting is enabled.",
     getProgress:
         "Returns the latest Viewer-owned model loading progress event.",
     getSelected: "Returns selected element ids grouped by model id.",
@@ -768,6 +776,8 @@ const methodDescriptions: Record<string, string> = {
     setPassFilter:
         "Switches the postproduction pass filter. Use N8AO, SSAO or null.",
     setPreselectionColor: "Sets hover/preselection color.",
+    setPreselectionEnabled:
+        "Enables or disables hover/preselection highlighting.",
     setSaturation: "Sets postproduction saturation. Use values from -1 to 1.",
     setSelected:
         "Replaces or updates selected element ids and can move or fit the camera target.",
@@ -782,6 +792,7 @@ const methodDescriptions: Record<string, string> = {
     showByIds: "Shows specific element ids.",
     toggle: "Toggles the tool active state.",
     toggleDefaultHotkeys: "Toggles built-in hotkeys.",
+    togglePreselection: "Toggles hover/preselection highlighting.",
     toggleIIfcSpacesVisibility: "Toggles IFC space mesh visibility.",
     toggleShowGridAxes: "Toggles grid axes visibility.",
     toggleShowNavCube: "Toggles navigation cube visibility.",
@@ -1170,7 +1181,9 @@ function getParameterInfo(
         enabled: [
             param,
             "boolean",
-            `Whether the built-in hotkeys should be enabled.${optionalSuffix}`,
+            methodName === "setPreselectionEnabled"
+                ? `Whether hover/preselection highlighting should be enabled.${optionalSuffix}`
+                : `Whether the built-in hotkeys should be enabled.${optionalSuffix}`,
         ],
         files: [
             param,

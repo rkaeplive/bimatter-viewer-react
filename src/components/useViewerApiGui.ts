@@ -77,6 +77,7 @@ type UtilsParams = {
     gridLeft: boolean;
     gridRight: boolean;
     gridTop: boolean;
+    preselectionEnabled: boolean;
     showGridAxes: boolean;
     showNavCube: boolean;
     showStats: boolean;
@@ -1081,6 +1082,7 @@ export function useViewerApiGui({
             gridLeft: gridAxesVisibility.left,
             gridRight: gridAxesVisibility.right,
             gridTop: gridAxesVisibility.top,
+            preselectionEnabled: api.utils.getPreselectionEnabled(),
             showGridAxes: api.utils.getShowGridAxes(),
             showNavCube: api.utils.getShowNavCube(),
             showStats: api.utils.getShowStats(),
@@ -1292,6 +1294,8 @@ export function useViewerApiGui({
             utilsParams.gridLeft = visibility.left;
             utilsParams.gridRight = visibility.right;
             utilsParams.gridTop = visibility.top;
+            utilsParams.preselectionEnabled =
+                viewerApi.utils.getPreselectionEnabled();
             utilsParams.showGridAxes = viewerApi.utils.getShowGridAxes();
             utilsParams.showNavCube = viewerApi.utils.getShowNavCube();
             utilsParams.showStats = viewerApi.utils.getShowStats();
@@ -1548,6 +1552,11 @@ export function useViewerApiGui({
             .name("setDefaultHotkeysEnabled")
             .onChange((value: boolean) =>
                 run(() => api.utils.setDefaultHotkeysEnabled(value)),
+            );
+        addController(utilsFolder.add(utilsParams, "preselectionEnabled"))
+            .name("setPreselectionEnabled")
+            .onChange((value: boolean) =>
+                run(() => api.utils.setPreselectionEnabled(value)),
             );
         addController(utilsFolder.add(utilsParams, "showStats"))
             .name("setShowStats")
