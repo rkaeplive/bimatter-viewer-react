@@ -1600,7 +1600,7 @@ export function useViewerApiGui({
             );
 
         const collectorFolder = gui.addFolder("collector");
-        // collectorFolder.close();
+        collectorFolder.close();
         collectorModelIDController = addController(
             collectorFolder.add(
                 collectorParams,

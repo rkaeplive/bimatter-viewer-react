@@ -525,11 +525,7 @@ function ViewerDemo() {
             ? [`${panelResizeHandleWidth}px`, `${propertiesPanelWidth}px`]
             : []),
     ].join(" ");
-    const rendererInfoLeft = isMobile
-        ? 30
-        : showStructurePanel
-          ? structurePanelWidth + panelResizeHandleWidth + 20
-          : 20;
+    const rendererInfoLeft = isMobile ? 30 : 20;
 
     return (
         <div className="app">
