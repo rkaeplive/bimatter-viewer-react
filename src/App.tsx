@@ -1,6 +1,14 @@
 import "./App.css";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+    type KeyboardEvent as ReactKeyboardEvent,
+    type PointerEvent as ReactPointerEvent,
+    useCallback,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+} from "react";
 import { ElementProperties } from "./components/ElementProperties";
 import {
     StructureTree,
@@ -37,6 +45,16 @@ type LoadedGeometryLike = {
 };
 
 const numberFormatter = new Intl.NumberFormat("en-US");
+const minStructurePanelWidth = 200;
+const maxStructurePanelWidth = 560;
+const minPropertiesPanelWidth = 260;
+const maxPropertiesPanelWidth = 640;
+const panelResizeKeyboardStep = 24;
+const panelResizeHandleWidth = 6;
+
+function clamp(value: number, min: number, max: number) {
+    return Math.min(max, Math.max(min, value));
+}
 
 function createEmptyRendererInfo(): RendererInfoState {
     return {
@@ -168,6 +186,10 @@ function ViewerDemo() {
     const [viewerApi, setViewerApi] = useState<ViewerApi | null>(null);
     const [exportActiveView, setExportActiveView] = useState(false);
     const [exportUseMinVersion, setExportUseMinVersion] = useState(false);
+    const [structurePanelVisible, setStructurePanelVisible] = useState(false);
+    const [propertiesPanelVisible, setPropertiesPanelVisible] = useState(false);
+    const [structurePanelWidth, setStructurePanelWidth] = useState(280);
+    const [propertiesPanelWidth, setPropertiesPanelWidth] = useState(340);
     const [showSpaces, setShowSpaces] = useState(false);
     const [useIfcSpace, setUseIfcSpace] = useState(true);
     const [useWorker, setUseWorker] = useState(false);
@@ -190,6 +212,86 @@ function ViewerDemo() {
         },
         [],
     );
+    const startStructurePanelResize = useCallback(
+        (event: ReactPointerEvent<HTMLButtonElement>) => {
+            event.preventDefault();
+            const startX = event.clientX;
+            const startWidth = structurePanelWidth;
+            const updateWidth = (moveEvent: PointerEvent) => {
+                setStructurePanelWidth(
+                    clamp(
+                        startWidth + moveEvent.clientX - startX,
+                        minStructurePanelWidth,
+                        maxStructurePanelWidth,
+                    ),
+                );
+            };
+            const stopResize = () => {
+                window.removeEventListener("pointermove", updateWidth);
+            };
+
+            window.addEventListener("pointermove", updateWidth);
+            window.addEventListener("pointerup", stopResize, { once: true });
+        },
+        [structurePanelWidth],
+    );
+    const startPropertiesPanelResize = useCallback(
+        (event: ReactPointerEvent<HTMLButtonElement>) => {
+            event.preventDefault();
+            const startX = event.clientX;
+            const startWidth = propertiesPanelWidth;
+            const updateWidth = (moveEvent: PointerEvent) => {
+                setPropertiesPanelWidth(
+                    clamp(
+                        startWidth + startX - moveEvent.clientX,
+                        minPropertiesPanelWidth,
+                        maxPropertiesPanelWidth,
+                    ),
+                );
+            };
+            const stopResize = () => {
+                window.removeEventListener("pointermove", updateWidth);
+            };
+
+            window.addEventListener("pointermove", updateWidth);
+            window.addEventListener("pointerup", stopResize, { once: true });
+        },
+        [propertiesPanelWidth],
+    );
+    const onStructureResizeKeyDown = (
+        event: ReactKeyboardEvent<HTMLButtonElement>,
+    ) => {
+        if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+
+        event.preventDefault();
+        setStructurePanelWidth((width) =>
+            clamp(
+                width +
+                    (event.key === "ArrowRight"
+                        ? panelResizeKeyboardStep
+                        : -panelResizeKeyboardStep),
+                minStructurePanelWidth,
+                maxStructurePanelWidth,
+            ),
+        );
+    };
+    const onPropertiesResizeKeyDown = (
+        event: ReactKeyboardEvent<HTMLButtonElement>,
+    ) => {
+        if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+
+        event.preventDefault();
+        setPropertiesPanelWidth((width) =>
+            clamp(
+                width +
+                    (event.key === "ArrowLeft"
+                        ? panelResizeKeyboardStep
+                        : -panelResizeKeyboardStep),
+                minPropertiesPanelWidth,
+                maxPropertiesPanelWidth,
+            ),
+        );
+    };
     const selectionInfo = useMemo(() => getSelectionInfo(selected), [selected]);
     useViewerApiGui({
         api: viewerApi,
@@ -212,6 +314,7 @@ function ViewerDemo() {
         useIfcSpace,
         usePerformanceMoving,
         useWebGPU,
+        viewerContainerRef,
     });
 
     useEffect(() => {
@@ -410,6 +513,23 @@ function ViewerDemo() {
     const isMobile = viewerApi?.utils.getUserDevice() === "mobile";
     const appBusy = modelLoading || workerLoading;
     const hasModels = !!modelsData && Object.keys(modelsData).length > 0;
+    const showStructurePanel = !!viewerApi && !isMobile && structurePanelVisible;
+    const showPropertiesPanel =
+        !!viewerApi && !isMobile && propertiesPanelVisible;
+    const shellGridColumns = [
+        ...(showStructurePanel
+            ? [`${structurePanelWidth}px`, `${panelResizeHandleWidth}px`]
+            : []),
+        "minmax(0, 1fr)",
+        ...(showPropertiesPanel
+            ? [`${panelResizeHandleWidth}px`, `${propertiesPanelWidth}px`]
+            : []),
+    ].join(" ");
+    const rendererInfoLeft = isMobile
+        ? 30
+        : showStructurePanel
+          ? structurePanelWidth + panelResizeHandleWidth + 20
+          : 20;
 
     return (
         <div className="app">
@@ -488,6 +608,37 @@ function ViewerDemo() {
                 >
                     Load large bmt models
                 </button>
+                <div className="app-toolbar-group">
+                    <span className="app-toolbar-title">Panels</span>
+                    <button
+                        className={
+                            structurePanelVisible
+                                ? "app-toolbar-toggle is-active"
+                                : "app-toolbar-toggle"
+                        }
+                        disabled={isMobile}
+                        onClick={() =>
+                            setStructurePanelVisible((visible) => !visible)
+                        }
+                        type="button"
+                    >
+                        Tree
+                    </button>
+                    <button
+                        className={
+                            propertiesPanelVisible
+                                ? "app-toolbar-toggle is-active"
+                                : "app-toolbar-toggle"
+                        }
+                        disabled={isMobile}
+                        onClick={() =>
+                            setPropertiesPanelVisible((visible) => !visible)
+                        }
+                        type="button"
+                    >
+                        Properties
+                    </button>
+                </div>
                 <div className="app-toolbar-group">
                     <button
                         onClick={() => viewerRef.current?.camera.fitCamera()}
@@ -587,16 +738,26 @@ function ViewerDemo() {
                     </span>
                 )}
             </div>
-            <div className={!isMobile ? "app-shell" : "app-shell-mobile"}>
-                {viewerApi && !isMobile ? (
+            <div
+                className={!isMobile ? "app-shell" : "app-shell-mobile"}
+                style={!isMobile ? { gridTemplateColumns: shellGridColumns } : undefined}
+            >
+                {showStructurePanel && (
                     <StructureTree
                         modelsData={modelsData}
                         onSelectElements={selectElements}
                         selected={selected}
                         showIfcSpaces={showSpaces}
                     />
-                ) : (
-                    <div></div>
+                )}
+                {showStructurePanel && (
+                    <button
+                        aria-label="Resize structure panel"
+                        className="app-resize-handle app-resize-handle-left"
+                        onKeyDown={onStructureResizeKeyDown}
+                        onPointerDown={startStructurePanelResize}
+                        type="button"
+                    />
                 )}
                 <main className="app-viewer" ref={viewerContainerRef}>
                     {!hasModels && (
@@ -605,10 +766,7 @@ function ViewerDemo() {
                     <div
                         className="app-renderer-info"
                         style={{
-                            left:
-                                viewerApi?.utils.getUserDevice() === "mobile"
-                                    ? 30
-                                    : 300,
+                            left: rendererInfoLeft,
                         }}
                     >
                         <div className="app-renderer-info-row">
@@ -637,13 +795,20 @@ function ViewerDemo() {
                         useWebGPU={useWebGPU}
                     />
                 </main>
-                {viewerApi && !isMobile ? (
+                {showPropertiesPanel && (
+                    <button
+                        aria-label="Resize properties panel"
+                        className="app-resize-handle app-resize-handle-right"
+                        onKeyDown={onPropertiesResizeKeyDown}
+                        onPointerDown={startPropertiesPanelResize}
+                        type="button"
+                    />
+                )}
+                {showPropertiesPanel && (
                     <ElementProperties
                         modelsData={modelsData}
                         selectedElement={selectionInfo.selectedElement}
                     />
-                ) : (
-                    <div></div>
                 )}
             </div>
         </div>

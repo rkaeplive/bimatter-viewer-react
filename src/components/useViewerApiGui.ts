@@ -9,6 +9,7 @@ import type {
     ViewerLoadedModels,
     ViewerMaterialMode,
     ViewerModelLevel,
+    ViewerPlanHandle,
     ViewerPostproductionPassType,
     ViewerSelection,
     ViewerUploadMode,
@@ -35,6 +36,17 @@ type ViewerApiGuiOptions = {
     useIfcSpace?: boolean;
     usePerformanceMoving?: boolean;
     useWebGPU?: boolean;
+    viewerContainerRef?: {
+        current: HTMLElement | null;
+    };
+};
+
+type ViewerFirstPersonControlSettings = {
+    eyeHeight?: number;
+    groundCheckInterval?: number;
+    groundSnapDistanceRatio?: number;
+    lookSensitivity?: number;
+    speed?: number;
 };
 
 type ColorsParams = {
@@ -57,6 +69,15 @@ type ClippingParams = {
     deleteAllPlanes: () => void;
     edgesActive: boolean;
     helpersActive: boolean;
+};
+
+type GeometryUtilsParams = {
+    trueNorthEnabled: boolean;
+};
+
+type PlansParams = {
+    createPlan: () => void;
+    planeIndex: number;
 };
 
 type CollectorParams = {
@@ -89,6 +110,12 @@ type SpacesParams = {
 };
 type CameraParams = {
     cameraType: "orthographic" | "perspective";
+    eyeHeight: number;
+    firstPersonControlActive: boolean;
+    groundCheckInterval: number;
+    groundSnapDistanceRatio: number;
+    lookSensitivity: number;
+    speed: number;
 };
 type PerformanceParams = {
     materialMode: ViewerMaterialMode;
@@ -755,6 +782,44 @@ function getControllerOptionsKey(options: Record<string, number | string>) {
         .join("|");
 }
 
+function getClippingPlaneOptions(api: ViewerApi) {
+    const planes = api.clipping.getPlanes();
+    if (!planes.length) return { "No planes": -1 };
+
+    return Object.fromEntries(
+        planes.map((_, index) => [`Plane ${index}`, index]),
+    );
+}
+
+function createPlanContainer(viewerContainer?: HTMLElement | null) {
+    const root = viewerContainer ?? document.body;
+    const wrapper = document.createElement("div");
+    const content = document.createElement("div");
+    const closeButton = document.createElement("button");
+
+    wrapper.className = "app-plan-view";
+    content.className = "app-plan-view-content";
+    closeButton.className = "app-plan-view-close";
+    closeButton.type = "button";
+    closeButton.ariaLabel = "Close plan";
+    closeButton.textContent = "x";
+    closeButton.addEventListener("pointerdown", (event) => {
+        event.stopPropagation();
+    });
+    closeButton.addEventListener("click", (event) => {
+        event.stopPropagation();
+    });
+
+    wrapper.append(content, closeButton);
+    root.append(wrapper);
+
+    return {
+        closeButton,
+        content,
+        wrapper,
+    };
+}
+
 function getCollectorLevelKey(modelID: number, levelIndex: number) {
     return `${modelID}:${levelIndex}`;
 }
@@ -833,6 +898,7 @@ export function useViewerApiGui({
     useIfcSpace = true,
     usePerformanceMoving = false,
     useWebGPU = false,
+    viewerContainerRef,
 }: ViewerApiGuiOptions) {
     const selectedRef = useRef(selected);
     const modelsDataRef = useRef(modelsData);
@@ -892,14 +958,17 @@ export function useViewerApiGui({
         if (!api) return;
         const viewerApi = api;
         const isMobile = viewerApi.utils.getUserDevice() === "mobile";
+        const guiRoot = viewerContainerRef?.current ?? document.body;
 
         const gui = new GUI({
             title: "Viewer API",
             width: 330,
         });
-        gui.domElement.style.top = "48px";
-        gui.domElement.style.right = isMobile ? "20px" : "350px";
-        gui.domElement.style.maxHeight = "calc(50vh )";
+        guiRoot.append(gui.domElement);
+        gui.domElement.style.position = "absolute";
+        gui.domElement.style.top = isMobile ? "48px" : "8px";
+        gui.domElement.style.right = isMobile ? "20px" : "16px";
+        gui.domElement.style.maxHeight = "calc(50vh)";
         if (isMobile) {
             gui.close();
         }
@@ -922,6 +991,34 @@ export function useViewerApiGui({
                 if (!ids.length) return;
                 callback(Number(modelID), ids);
             });
+        };
+        const planDisposers = new Set<() => void>();
+        const disposeAllPlans = () => {
+            Array.from(planDisposers).forEach((disposePlan) => disposePlan());
+        };
+        const createPlanView = (planeIndex: number) => {
+            const plane = viewerApi.clipping.getPlanes()[planeIndex];
+            if (!plane) return;
+
+            disposeAllPlans();
+
+            const { closeButton, content, wrapper } = createPlanContainer(
+                viewerContainerRef?.current,
+            );
+            let planHandle: ViewerPlanHandle | null = null;
+            const disposePlan = () => {
+                planDisposers.delete(disposePlan);
+                planHandle?.dispose();
+                wrapper.remove();
+            };
+
+            closeButton.addEventListener("click", disposePlan);
+            planDisposers.add(disposePlan);
+            planHandle = viewerApi.plans.createPlan(plane, content);
+
+            if (!planHandle) {
+                disposePlan();
+            }
         };
 
         const colorsParams: ColorsParams = {
@@ -970,6 +1067,13 @@ export function useViewerApiGui({
             deleteAllPlanes: () => run(() => api.clipping.deleteAllPlanes()),
             edgesActive: api.clipping.getEdgesActive(),
             helpersActive: api.clipping.getHelpersActive(),
+        };
+        const geometryUtilsParams: GeometryUtilsParams = {
+            trueNorthEnabled: true,
+        };
+        const plansParams: PlansParams = {
+            createPlan: () => createPlanView(plansParams.planeIndex),
+            planeIndex: viewerApi.clipping.getPlanes().length ? 0 : -1,
         };
         let collectorPropertiesLoaded = false;
         let collectorPropertyModelID: number | null = null;
@@ -1093,6 +1197,12 @@ export function useViewerApiGui({
         };
         const cameraParams: CameraParams = {
             cameraType: cameraTypeRef.current,
+            eyeHeight: 1.5,
+            firstPersonControlActive: false,
+            groundCheckInterval: 1,
+            groundSnapDistanceRatio: 3,
+            lookSensitivity: 0.004,
+            speed: 4,
         };
         const performanceParams: PerformanceParams = {
             materialMode: materialModeRef.current,
@@ -1145,6 +1255,13 @@ export function useViewerApiGui({
         let collectorPropertySelectController: Controller | null = null;
         let colorizeModelIDController: Controller | null = null;
         let materialModeController: Controller | null = null;
+        let planPlaneOptionsKey: string | null = null;
+        let planPlaneController: Controller | null = null;
+        let planCreateController: Controller | null = null;
+        let clippingPlaneSyncFrame: number | null = null;
+        let clippingPlaneOptionsSnapshot = getControllerOptionsKey(
+            getClippingPlaneOptions(viewerApi),
+        );
         let useIfcSpaceController: Controller | null = null;
         let useDoubleSideMaterialController: Controller | null = null;
         let pendingPostproductionPassFilter: PostproductionPassFilterOption | null =
@@ -1152,6 +1269,19 @@ export function useViewerApiGui({
         const n8aoControllers: Controller[] = [];
         const ssaoControllers: Controller[] = [];
         const collectorPropertyControllers: Controller[] = [];
+        const watchClippingPlanes = () => {
+            const nextOptionsKey = getControllerOptionsKey(
+                getClippingPlaneOptions(viewerApi),
+            );
+
+            if (nextOptionsKey !== clippingPlaneOptionsSnapshot) {
+                clippingPlaneOptionsSnapshot = nextOptionsKey;
+                syncGuiState();
+            }
+
+            clippingPlaneSyncFrame =
+                window.requestAnimationFrame(watchClippingPlanes);
+        };
         const setCollectorPropertyControllersVisible = (visible: boolean) => {
             collectorPropertyControllers.forEach((controller) => {
                 setControllerVisible(controller, visible);
@@ -1286,6 +1416,24 @@ export function useViewerApiGui({
             clippingParams.edgesActive = viewerApi.clipping.getEdgesActive();
             clippingParams.helpersActive =
                 viewerApi.clipping.getHelpersActive();
+            const clippingPlaneOptions = getClippingPlaneOptions(viewerApi);
+            const clippingPlaneValues = Object.values(clippingPlaneOptions);
+            const nextPlanPlaneOptionsKey =
+                getControllerOptionsKey(clippingPlaneOptions);
+
+            if (planPlaneOptionsKey !== nextPlanPlaneOptionsKey) {
+                planPlaneOptionsKey = nextPlanPlaneOptionsKey;
+                planPlaneController?.options(clippingPlaneOptions);
+            }
+
+            if (!clippingPlaneValues.includes(plansParams.planeIndex)) {
+                plansParams.planeIndex = clippingPlaneValues[0] ?? -1;
+            }
+            const hasClippingPlanes = clippingPlaneValues.some(
+                (value) => value >= 0,
+            );
+            planPlaneController?.enable(hasClippingPlanes);
+            planCreateController?.enable(hasClippingPlanes);
 
             const visibility = viewerApi.utils.getGridAxesVisibility();
             utilsParams.defaultHotkeysEnabled =
@@ -1422,6 +1570,34 @@ export function useViewerApiGui({
         addController(
             clippingFolder.add(clippingParams, "deleteAllPlanes"),
         ).name("deleteAllPlanes");
+
+        const plansFolder = gui.addFolder("plans");
+        plansFolder.close();
+        planPlaneController = addController(
+            plansFolder.add(
+                plansParams,
+                "planeIndex",
+                getClippingPlaneOptions(viewerApi),
+            ),
+        )
+            .name("planes")
+            .onChange((value: number | string) => {
+                plansParams.planeIndex = Number(value);
+                syncGuiState();
+            });
+        planCreateController = addController(
+            plansFolder.add(plansParams, "createPlan"),
+        ).name("создать");
+
+        const geometryUtilsFolder = gui.addFolder("geometryUtils");
+        geometryUtilsFolder.close();
+        addController(
+            geometryUtilsFolder.add(geometryUtilsParams, "trueNorthEnabled"),
+        )
+            .name("useTrueNorth")
+            .onChange((value: boolean) =>
+                run(() => api.geometryUtils.useTrueNorth(value)),
+            );
 
         const collectorFolder = gui.addFolder("collector");
         // collectorFolder.close();
@@ -1979,12 +2155,97 @@ export function useViewerApiGui({
                 onCameraTypeChange?.(nextCameraType);
                 syncGuiState();
             });
+        const applyFirstPersonControlSettings = () => {
+            const settings: ViewerFirstPersonControlSettings = {
+                eyeHeight: cameraParams.eyeHeight,
+                groundCheckInterval: cameraParams.groundCheckInterval,
+                groundSnapDistanceRatio: cameraParams.groundSnapDistanceRatio,
+                lookSensitivity: cameraParams.lookSensitivity,
+                speed: cameraParams.speed,
+            };
+
+            viewerApi.camera.setFirstPersonControlSettings(settings);
+        };
+        const firstPersonFolder = cameraFolder.addFolder("1st person control");
+        firstPersonFolder.close();
+        addController(
+            firstPersonFolder.add(cameraParams, "firstPersonControlActive"),
+        )
+            .name("setFirstPersonControlActive")
+            .onChange((value: boolean) =>
+                run(() => viewerApi.camera.setFirstPersonControlActive(value)),
+            );
+        addController(
+            firstPersonFolder.add(cameraParams, "speed", 0.001, 10, 0.1),
+        )
+            .name("speed")
+            .onChange((value: number) => {
+                cameraParams.speed = value;
+                applyFirstPersonControlSettings();
+            });
+        addController(
+            firstPersonFolder.add(
+                cameraParams,
+                "lookSensitivity",
+                0.0001,
+                0.1,
+                0.0001,
+            ),
+        )
+            .name("lookSensitivity")
+            .onChange((value: number) => {
+                cameraParams.lookSensitivity = value;
+                applyFirstPersonControlSettings();
+            });
+        addController(
+            firstPersonFolder.add(cameraParams, "eyeHeight", 0.001, 5, 0.01),
+        )
+            .name("eyeHeight")
+            .onChange((value: number) => {
+                cameraParams.eyeHeight = value;
+                applyFirstPersonControlSettings();
+            });
+        addController(
+            firstPersonFolder.add(
+                cameraParams,
+                "groundCheckInterval",
+                1,
+                120,
+                1,
+            ),
+        )
+            .name("groundCheckInterval")
+            .onChange((value: number) => {
+                cameraParams.groundCheckInterval = value;
+                applyFirstPersonControlSettings();
+            });
+        addController(
+            firstPersonFolder.add(
+                cameraParams,
+                "groundSnapDistanceRatio",
+                0.1,
+                100,
+                0.1,
+            ),
+        )
+            .name("groundSnapDistanceRatio")
+            .onChange((value: number) => {
+                cameraParams.groundSnapDistanceRatio = value;
+                applyFirstPersonControlSettings();
+            });
 
         syncGuiRef.current = syncGuiState;
         syncGuiState();
+        clippingPlaneSyncFrame =
+            window.requestAnimationFrame(watchClippingPlanes);
 
         return () => {
+            if (clippingPlaneSyncFrame !== null) {
+                window.cancelAnimationFrame(clippingPlaneSyncFrame);
+            }
+
             syncGuiRef.current = null;
+            disposeAllPlans();
             gui.destroy();
         };
     }, [
@@ -1998,5 +2259,6 @@ export function useViewerApiGui({
         onCameraTypeChange,
         onUsePerformanceMovingChange,
         onUseWebGPUChange,
+        viewerContainerRef,
     ]);
 }

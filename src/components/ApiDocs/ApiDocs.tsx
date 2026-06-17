@@ -291,6 +291,26 @@ const propertiesExcelOptions = [
     ["emptyValue", "string", "Placeholder for empty property values."],
 ] as const;
 
+const firstPersonControlSettings = [
+    ["speed", "number", "Movement speed."],
+    ["lookSensitivity", "number", "Mouse look sensitivity."],
+    [
+        "eyeHeight",
+        "number",
+        "Camera height above the detected ground surface.",
+    ],
+    [
+        "groundCheckInterval",
+        "number",
+        "How often to check the ground, in rendered frames.",
+    ],
+    [
+        "groundSnapDistanceRatio",
+        "number",
+        "Ground search distance as a multiplier of eyeHeight.",
+    ],
+] as const;
+
 const converterOptions = [
     [
         "activeView",
@@ -487,6 +507,8 @@ const apiGroups = [
             "getIntersection(first?)",
             "setProjection(projectionType)",
             "getProjection()",
+            "setFirstPersonControlActive(active)",
+            "setFirstPersonControlSettings(settings)",
         ],
     },
     {
@@ -515,6 +537,7 @@ const apiGroups = [
             "setIfcSpacesVisibility(visible)",
             "getIfcSpacesVisibility()",
             "toggleIIfcSpacesVisibility()",
+            "useTrueNorth(enabled?)",
         ],
     },
     {
@@ -560,12 +583,17 @@ const apiGroups = [
             "createClippingRectangle(selected?)",
             "toggle()",
             "setActive(active)",
+            "getPlanes()",
             "getCapsActive()",
             "setCapsActive(active)",
             "setEdgesActive(active)",
             "setHelpersActive(active)",
             "deleteAllPlanes()",
         ],
+    },
+    {
+        name: "plans",
+        methods: ["createPlan(plane, container?)"],
     },
     {
         name: "dimensions",
@@ -668,6 +696,10 @@ const optionsTableDefinitions: Record<string, OptionsTableDefinition> = {
         rows: modelLoadOptions,
         typeName: "ViewerLoadModelsOptions",
     },
+    ViewerFirstPersonControlSettings: {
+        rows: firstPersonControlSettings,
+        typeName: "ViewerFirstPersonControlSettings",
+    },
     ViewerPropertiesExcelOptions: {
         rows: propertiesExcelOptions,
         typeName: "ViewerPropertiesExcelOptions",
@@ -689,6 +721,8 @@ const methodDescriptions: Record<string, string> = {
     convertToBmt: "Exports currently loaded models to BMT.",
     createClippingRectangle:
         "Starts rectangular clipping creation. Pass true to build it from selected elements.",
+    createPlan:
+        "Creates a 2D plan view from a clipping plane and mounts it into a DOM container.",
     createPlane: "Creates a clipping plane.",
     delete: "Deletes the active dimension.",
     deleteAll: "Deletes all dimensions.",
@@ -768,6 +802,10 @@ const methodDescriptions: Record<string, string> = {
     setCapsActive: "Shows or hides clipping section caps.",
     setEdgesActive: "Shows or hides clipping section edges.",
     setEndpointScaleFactor: "Sets dimension endpoint visual scale.",
+    setFirstPersonControlActive:
+        "Enables or disables first-person camera controls.",
+    setFirstPersonControlSettings:
+        "Updates first-person movement, mouse look and ground snapping settings.",
     setGridAxesVisibility: "Updates several grid axis visibility flags.",
     setGridAxisVisibility: "Updates one grid axis side visibility.",
     setHelpersActive: "Shows or hides clipping helpers.",
@@ -794,6 +832,8 @@ const methodDescriptions: Record<string, string> = {
     toggleDefaultHotkeys: "Toggles built-in hotkeys.",
     togglePreselection: "Toggles hover/preselection highlighting.",
     toggleIIfcSpacesVisibility: "Toggles IFC space mesh visibility.",
+    useTrueNorth:
+        "Applies or disables the model true north transform when the loaded model contains a true north angle.",
     toggleShowGridAxes: "Toggles grid axes visibility.",
     toggleShowNavCube: "Toggles navigation cube visibility.",
     updateEdges: "Refreshes clipping edge geometry.",
@@ -801,13 +841,14 @@ const methodDescriptions: Record<string, string> = {
 };
 
 const apiGroupDescriptions: Record<ApiGroupName, string> = {
-    camera: "Camera helpers for framing the model and reading pointer intersections.",
+    camera: "Camera helpers for framing the model, reading pointer intersections and first-person navigation.",
     clipping: "Plane and rectangular clipping controls.",
     colors: "Temporary element color overrides.",
     converter: "BMT export and direct IFC-to-BMT conversion.",
     dimensions: "Measurement drawing and dimension styling controls.",
     geometryUtils: "Visibility, isolation and IFC space mesh controls.",
     models: "Viewer-owned model loading, progress and reset controls.",
+    plans: "2D plan views created from clipping planes or point/normal inputs.",
     postproduction:
         "Postprocessing pass filter, saturation and lighting controls.",
     properties: "Access and export model metadata.",
@@ -1141,7 +1182,14 @@ function getParameterInfo(
         active: [
             param,
             "boolean",
-            `Whether the tool should be active.${optionalSuffix}`,
+            methodName === "setFirstPersonControlActive"
+                ? `Whether first-person camera controls should be active.${optionalSuffix}`
+                : `Whether the tool should be active.${optionalSuffix}`,
+        ],
+        container: [
+            param,
+            "HTMLElement",
+            `DOM container that will host the plan view.${optionalSuffix}`,
         ],
         color: [
             param,
@@ -1183,7 +1231,9 @@ function getParameterInfo(
             "boolean",
             methodName === "setPreselectionEnabled"
                 ? `Whether hover/preselection highlighting should be enabled.${optionalSuffix}`
-                : `Whether the built-in hotkeys should be enabled.${optionalSuffix}`,
+                : methodName === "useTrueNorth"
+                  ? `Whether the true north transform should be applied. Defaults to true.${optionalSuffix}`
+                  : `Whether the built-in hotkeys should be enabled.${optionalSuffix}`,
         ],
         files: [
             param,
@@ -1239,6 +1289,11 @@ function getParameterInfo(
             "string",
             `Property parameter name to read.${optionalSuffix}`,
         ],
+        plane: [
+            param,
+            "Plane",
+            `Three.js clipping plane, for example one returned by clipping.getPlanes().${optionalSuffix}`,
+        ],
         recursive: [
             param,
             "boolean",
@@ -1278,6 +1333,11 @@ function getParameterInfo(
             param,
             "string",
             `Optional property set name used to narrow the lookup.${optionalSuffix}`,
+        ],
+        settings: [
+            param,
+            "ViewerFirstPersonControlSettings",
+            `First-person control settings.${optionalSuffix}`,
         ],
         show: [
             param,
@@ -1333,6 +1393,13 @@ function getOptionsTableDefinitionForMethod(
     groupName: ApiGroupName,
     methodName: string,
 ) {
+    if (
+        groupName === "camera" &&
+        methodName === "setFirstPersonControlSettings"
+    ) {
+        return optionsTableDefinitions.ViewerFirstPersonControlSettings;
+    }
+
     if (groupName === "models" && methodName === "loadModels") {
         return optionsTableDefinitions.ViewerLoadModelsOptions;
     }
@@ -1366,6 +1433,7 @@ function getSampleArg(param: string) {
 
     if (normalized === "active") return "true";
     if (normalized === "color") return '"#ff3355"';
+    if (normalized === "container") return "container";
     if (normalized === "colorsbyids") return '{ "#ff3355": [1, 2, 3] }';
     if (normalized === "colorsbymodel") {
         return '{ 0: { "#ff3355": [1, 2, 3] } }';
@@ -1388,6 +1456,7 @@ function getSampleArg(param: string) {
         return "{ activeView: true, useMinVersion: true }";
     }
     if (normalized === "paramname") return '"System Name"';
+    if (normalized === "plane") return "plane";
     if (normalized === "recursive") return "true";
     if (normalized === "reset") return "true";
     if (normalized === "scale") return "0.015";
@@ -1395,6 +1464,9 @@ function getSampleArg(param: string) {
     if (normalized === "selected") return "true";
     if (normalized === "setname") return '"Mechanical"';
     if (normalized === "settarget") return "true";
+    if (normalized === "settings") {
+        return "{ speed: 4, lookSensitivity: 0.004, eyeHeight: 1.5 }";
+    }
     if (normalized === "show") return "true";
     if (normalized === "side") return '"left"';
     if (normalized === "sources") return '["/models/model.bmt"]';
@@ -1453,6 +1525,39 @@ function getMethodExample(groupName: ApiGroupName, signature: string) {
         }
     }
 
+    if (groupName === "camera") {
+        if (methodName === "setFirstPersonControlActive") {
+            return `viewerRef.current?.camera.setFirstPersonControlActive(true);`;
+        }
+
+        if (methodName === "setFirstPersonControlSettings") {
+            return `viewerRef.current?.camera.setFirstPersonControlSettings({
+    speed: 4,
+    lookSensitivity: 0.004,
+    eyeHeight: 1.5,
+    groundCheckInterval: 1,
+    groundSnapDistanceRatio: 3,
+});`;
+        }
+    }
+
+    if (groupName === "plans" && methodName === "createPlan") {
+        return `const [plane] = viewerRef.current?.clipping.getPlanes() ?? [];
+const container = document.createElement("div");
+
+container.style.width = "500px";
+container.style.height = "500px";
+document.body.append(container);
+
+const plan = plane
+    ? viewerRef.current?.plans.createPlan(plane, container)
+    : null;
+
+// Later:
+plan?.dispose();
+container.remove();`;
+    }
+
     if (
         groupName === "converter" &&
         methodName === "convertIfcFilesToBmtInWorker"
@@ -1500,6 +1605,11 @@ modelGroup?.traverse((object) => {
 modelGroups.forEach((group) => {
     console.log(group.userData.modelID, group.children.length);
 });`;
+        }
+
+        if (methodName === "useTrueNorth") {
+            return `viewerRef.current?.geometryUtils.useTrueNorth(true);
+viewerRef.current?.geometryUtils.useTrueNorth(false);`;
         }
     }
 
