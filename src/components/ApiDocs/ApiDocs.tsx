@@ -71,11 +71,14 @@ const performanceCode = `<Viewer ref={viewerRef} performanceMode />
 
 <Viewer ref={viewerRef} usePerformanceMoving />
 
+viewerRef.current?.utils.setPerformanceMovingFactor(0.5);
+
 <Viewer ref={viewerRef} materialMode="performance" />
 
 await viewerRef.current?.models.loadModels(["/models/model.bmt"], {
     clearViewer: true,
     materialMode: "performance",
+    uploadMode: "balanced",
     useDoubleSideMaterial: true,
 });`;
 
@@ -272,6 +275,16 @@ const modelLoadOptions = [
         'Stores model render settings. Use "performance" for a cheaper unlit material.',
     ],
     [
+        "uploadMode",
+        '"smooth" | "balanced" | "fast"',
+        "Controls how geometry upload is paced while adding loaded models to the scene.",
+    ],
+    [
+        "mergeVertices",
+        "boolean",
+        "Merges IFC geometry vertices during loading. Enabled by default.",
+    ],
+    [
         "useDoubleSideMaterial",
         "boolean",
         "Uses double-sided model materials. Disabled by default for better FPS.",
@@ -308,6 +321,72 @@ const firstPersonControlSettings = [
         "groundSnapDistanceRatio",
         "number",
         "Ground search distance as a multiplier of eyeHeight.",
+    ],
+] as const;
+
+const planCreateOverloads = [
+    [
+        "createPlan(plane, container?)",
+        "Plane, HTMLElement?",
+        "Creates a plan from an existing Three.js plane, for example from clipping.getPlanes().",
+    ],
+    [
+        "createPlan(plane, normal, container?)",
+        "Plane, ViewerPlanVector3Input, HTMLElement?",
+        "Uses an existing plane and an explicit view normal.",
+    ],
+    [
+        "createPlan(point, normal, container?)",
+        "ViewerPlanVector3Input, ViewerPlanVector3Input, HTMLElement?",
+        "Creates a local plane from a point and normal.",
+    ],
+    [
+        "createPlan(point, container?)",
+        "ViewerPlanVector3Input, HTMLElement?",
+        "Creates a horizontal plan through the point.",
+    ],
+    [
+        "createPlan(zCord, normal, container?)",
+        "number, ViewerPlanVector3Input, HTMLElement?",
+        "Creates a plan at the given Z coordinate with an explicit normal.",
+    ],
+    [
+        "createPlan(zCord, container?)",
+        "number, HTMLElement?",
+        "Creates a horizontal plan at the given Z coordinate.",
+    ],
+] as const;
+
+const dimensionWorkflowRows = [
+    [
+        "Start",
+        "dimensions.setActive(true) or M",
+        "Enables measurement drawing mode.",
+    ],
+    [
+        "Draw",
+        "Left click start, move cursor, left click end",
+        "Creates a dimension between snapped or projected points.",
+    ],
+    [
+        "Axis",
+        "Tab or dimensions.changeAxes()",
+        "Cycles measurement axes while a dimension is being drawn.",
+    ],
+    [
+        "Axis lock",
+        "X / Y / Z",
+        "Locks the active dimension axis; press the same key again to unlock.",
+    ],
+    [
+        "Cancel",
+        "Escape or dimensions.cancelDrawing()",
+        "Cancels the in-progress dimension.",
+    ],
+    [
+        "Remove",
+        "dimensions.delete() / dimensions.deleteAll()",
+        "Deletes the active dimension or all dimensions.",
     ],
 ] as const;
 
@@ -496,7 +575,10 @@ const hotkeyRows = [
     ["H", "Visibility", "Hide selected elements."],
     ["I", "Visibility", "Isolate selected elements."],
     ["P", "Clipping", "Create clipping plane by model intersection."],
-    ["M", "Dimensions", "Toggle dimension drawing mode"],
+    ["M", "Dimensions", "Toggle dimension drawing mode."],
+    ["Escape", "Dimensions", "Cancel the in-progress dimension."],
+    ["Tab", "Dimensions", "Change measurement axes while drawing."],
+    ["X / Y / Z", "Dimensions", "Lock or unlock the measurement axis."],
 ] as const;
 
 const apiGroups = [
@@ -655,6 +737,8 @@ const apiGroups = [
             "getPreselectionEnabled()",
             "setPreselectionEnabled(enabled)",
             "togglePreselection()",
+            "getPerformanceMovingFactor()",
+            "setPerformanceMovingFactor(factor)",
             "getShowStats()",
             "setShowStats(show)",
             "getShowNavCube()",
@@ -763,6 +847,8 @@ const methodDescriptions: Record<string, string> = {
         "Returns one property value for an element by parameter and optional property set name.",
     getParamValueByName:
         "Returns one property value from element props by parameter and optional property set name.",
+    getPerformanceMovingFactor:
+        "Returns the DPR factor used while usePerformanceMoving is active and the camera is moving.",
     getPlanes: "Returns current clipping planes.",
     getPreselectionColor: "Returns hover/preselection color.",
     getPreselectionEnabled:
@@ -813,6 +899,8 @@ const methodDescriptions: Record<string, string> = {
     setLighting: "Updates ambient and directional lighting settings.",
     setPassFilter:
         "Switches the postproduction pass filter. Use N8AO, SSAO or null.",
+    setPerformanceMovingFactor:
+        "Sets the DPR factor used while usePerformanceMoving is active and the camera is moving.",
     setPreselectionColor: "Sets hover/preselection color.",
     setPreselectionEnabled:
         "Enables or disables hover/preselection highlighting.",
@@ -853,7 +941,7 @@ const apiGroupDescriptions: Record<ApiGroupName, string> = {
         "Postprocessing pass filter, saturation and lighting controls.",
     properties: "Access and export model metadata.",
     selector: "Selection state, colors and property-based element filtering.",
-    utils: "Viewer UI switches, hotkeys and device helpers.",
+    utils: "Viewer UI switches, hotkeys, performance moving factor and device helpers.",
 };
 
 function CodeBlock({ children }: { children: string }) {
@@ -1042,7 +1130,7 @@ function getApiSearchItems(): ApiSearchItem[] {
             label: "Performance Mode",
             hash: "#performance-mode",
             keywords:
-                "performance mode performanceMode usePerformanceMoving materialMode useDoubleSideMaterial fps gpu double side material camera moving dpr",
+                "performance mode performanceMode usePerformanceMoving performanceMovingFactor setPerformanceMovingFactor materialMode uploadMode useDoubleSideMaterial fps gpu double side material camera moving dpr",
         },
         {
             label: "BMT Convertor",
@@ -1060,7 +1148,7 @@ function getApiSearchItems(): ApiSearchItem[] {
             label: "Hotkeys",
             hash: "#hotkeys",
             keywords:
-                "hotkeys shortcuts keyboard selection visibility clipping shift ctrl drag click hide isolate clipping plane",
+                "hotkeys shortcuts keyboard selection visibility clipping dimensions measure measurement shift ctrl drag click hide isolate clipping plane escape tab axis x y z",
         },
         {
             label: "ViewerApi overview",
@@ -1239,6 +1327,11 @@ function getParameterInfo(
             param,
             "File[] | FileList",
             `IFC files selected by the user or provided by the app.${optionalSuffix}`,
+        ],
+        factor: [
+            param,
+            "number",
+            `Performance moving DPR factor from 0 to 1.${optionalSuffix}`,
         ],
         first: [
             param,
@@ -1443,6 +1536,7 @@ function getSampleArg(param: string) {
     if (normalized === "elementid") return "1";
     if (normalized === "elementparams") return "element.props";
     if (normalized === "enabled") return "false";
+    if (normalized === "factor") return "0.5";
     if (normalized === "files") return "files";
     if (normalized === "first") return "true";
     if (normalized === "fittarget") return "true";
@@ -1549,12 +1643,22 @@ container.style.width = "500px";
 container.style.height = "500px";
 document.body.append(container);
 
-const plan = plane
+const planFromClipping = plane
     ? viewerRef.current?.plans.createPlan(plane, container)
     : null;
 
+const planByPoint = viewerRef.current?.plans.createPlan(
+    [0, 0, 3],
+    [0, 0, 1],
+    container,
+);
+
+const planByZ = viewerRef.current?.plans.createPlan(3, container);
+
 // Later:
-plan?.dispose();
+planFromClipping?.dispose();
+planByPoint?.dispose();
+planByZ?.dispose();
 container.remove();`;
     }
 
@@ -1690,6 +1794,16 @@ const systemName = viewerRef.current?.properties.getParamValueByName(
         }
     }
 
+    if (groupName === "utils") {
+        if (methodName === "setPerformanceMovingFactor") {
+            return `viewerRef.current?.utils.setPerformanceMovingFactor(0.5);`;
+        }
+
+        if (methodName === "getPerformanceMovingFactor") {
+            return `const factor = viewerRef.current?.utils.getPerformanceMovingFactor();`;
+        }
+    }
+
     if (groupName === "clipping" && methodName === "createClippingRectangle") {
         return `viewerRef.current?.clipping.createClippingRectangle(true);`;
     }
@@ -1780,6 +1894,22 @@ function ApiGroupDetail({ group }: { group: ApiGroup }) {
                             {parameterRows.length > 0 && (
                                 <DataTable rows={parameterRows} />
                             )}
+                            {group.name === "plans" &&
+                                methodName === "createPlan" && (
+                                    <>
+                                        <h3>Overloads</h3>
+                                        <DataTable rows={planCreateOverloads} />
+                                    </>
+                                )}
+                            {group.name === "dimensions" &&
+                                methodName === "setActive" && (
+                                    <>
+                                        <h3>Workflow</h3>
+                                        <DataTable
+                                            rows={dimensionWorkflowRows}
+                                        />
+                                    </>
+                                )}
                             {optionsTableDefinition && (
                                 <OptionsTypeTable
                                     definition={optionsTableDefinition}
@@ -2077,11 +2207,18 @@ export function ApiDocs() {
                                     <code>materialMode="performance"</code>{" "}
                                     unless you pass another material mode. Use{" "}
                                     <code>usePerformanceMoving</code> to lower
-                                    DPR only while the camera is moving.{" "}
+                                    DPR only while the camera is moving, and
+                                    tune that drop with{" "}
+                                    <code>
+                                        utils.setPerformanceMovingFactor()
+                                    </code>
+                                    .{" "}
                                     <code>viewer.models.loadModels</code> can
                                     also store <code>materialMode</code> and{" "}
                                     <code>useDoubleSideMaterial</code> in model
-                                    render settings.
+                                    render settings, and <code>uploadMode</code>{" "}
+                                    controls how quickly geometry is uploaded
+                                    into the scene.
                                 </p>
                                 <CodeBlock>{performanceCode}</CodeBlock>
                             </section>
@@ -2125,6 +2262,13 @@ export function ApiDocs() {
                                     .
                                 </p>
                                 <DataTable rows={hotkeyRows} />
+                                <h3>Dimensions workflow</h3>
+                                <p>
+                                    Measurement mode can be driven by hotkeys
+                                    or directly through{" "}
+                                    <code>viewer.dimensions</code>.
+                                </p>
+                                <DataTable rows={dimensionWorkflowRows} />
                             </section>
 
                             <section className="docs-section" id="api">

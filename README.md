@@ -8,7 +8,7 @@ Write your issuse here: [GitHub](https://github.com/rkaeplive/bimatter-viewer-re
 
 ## [Documentation](https://rkaeplive.github.io/bimatter-viewer-react/api)
 
-Demo viewer example using bimatter-viewer-react@0.8.0
+Demo viewer example using bimatter-viewer-react@0.10.1
 
 ## HotKeys
 
@@ -45,3 +45,15 @@ Demo viewer example using bimatter-viewer-react@0.8.0
 ### Dimensions
 
 `M` - Toggle dimension drawing mode
+
+`Alt` - Toggle sticking to the axis
+
+`Tab` - Toggle active axis
+
+`Shift` - Dinamic sticking to the axis
+
+`X` - sticking to the X axis
+
+`Y` - sticking to the Y axis
+
+`Z` - sticking to the Z axis

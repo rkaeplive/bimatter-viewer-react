@@ -77,6 +77,7 @@ type GeometryUtilsParams = {
 
 type PlansParams = {
     createPlan: () => void;
+    dynamic: boolean;
     planeIndex: number;
 };
 
@@ -120,6 +121,7 @@ type CameraParams = {
 type PerformanceParams = {
     materialMode: ViewerMaterialMode;
     performanceMode: boolean;
+    performanceMovingFactor: number;
     uploadMode: ViewerUploadMode;
     useDoubleSideMaterial: boolean;
     usePerformanceMoving: boolean;
@@ -181,6 +183,7 @@ type DimensionsParams = {
     color: string;
     delete: () => void;
     deleteAll: () => void;
+    deleteDimensions: () => void;
     endpointScaleFactor: number;
     snapDistance: number;
     unit: "m" | "mm";
@@ -258,6 +261,11 @@ const collectorIfcClasses: CollectorIfcClass[] = [
 ];
 const allCollectorLevelsKey = "__all_levels__";
 const noCollectorPropertiesKey = "__no_properties__";
+const minPlanViewSize = 240;
+
+function clamp(value: number, min: number, max: number) {
+    return Math.min(max, Math.max(min, value));
+}
 const collectorPropertyOperators = [
     ">",
     "<",
@@ -796,10 +804,20 @@ function createPlanContainer(viewerContainer?: HTMLElement | null) {
     const wrapper = document.createElement("div");
     const content = document.createElement("div");
     const closeButton = document.createElement("button");
+    const topResizeHandle = document.createElement("div");
+    const rightResizeHandle = document.createElement("div");
+    const cornerResizeHandle = document.createElement("div");
+    let removeResizeListeners: (() => void) | null = null;
 
     wrapper.className = "app-plan-view";
     content.className = "app-plan-view-content";
     closeButton.className = "app-plan-view-close";
+    topResizeHandle.className =
+        "app-plan-view-resize-edge app-plan-view-resize-edge-top";
+    rightResizeHandle.className =
+        "app-plan-view-resize-edge app-plan-view-resize-edge-right";
+    cornerResizeHandle.className =
+        "app-plan-view-resize-edge app-plan-view-resize-edge-corner";
     closeButton.type = "button";
     closeButton.ariaLabel = "Close plan";
     closeButton.textContent = "x";
@@ -809,13 +827,77 @@ function createPlanContainer(viewerContainer?: HTMLElement | null) {
     closeButton.addEventListener("click", (event) => {
         event.stopPropagation();
     });
+    const startResize = (
+        event: PointerEvent,
+        direction: "corner" | "right" | "top",
+    ) => {
+        if (event.button !== 0) return;
 
-    wrapper.append(content, closeButton);
+        event.preventDefault();
+        event.stopPropagation();
+        const startX = event.clientX;
+        const startY = event.clientY;
+        const startWidth = wrapper.offsetWidth;
+        const startHeight = wrapper.offsetHeight;
+        const rootRect =
+            root instanceof HTMLElement
+                ? root.getBoundingClientRect()
+                : document.documentElement.getBoundingClientRect();
+        const maxWidth = Math.max(minPlanViewSize, rootRect.width - 32);
+        const maxHeight = Math.max(minPlanViewSize, rootRect.height - 32);
+
+        const resize = (moveEvent: PointerEvent) => {
+            if (direction === "right" || direction === "corner") {
+                wrapper.style.width = `${clamp(
+                    startWidth + moveEvent.clientX - startX,
+                    minPlanViewSize,
+                    maxWidth,
+                )}px`;
+            }
+
+            if (direction === "top" || direction === "corner") {
+                wrapper.style.height = `${clamp(
+                    startHeight + startY - moveEvent.clientY,
+                    minPlanViewSize,
+                    maxHeight,
+                )}px`;
+            }
+        };
+        const stopResize = () => {
+            window.removeEventListener("pointermove", resize);
+            window.removeEventListener("pointerup", stopResize);
+            removeResizeListeners = null;
+        };
+
+        removeResizeListeners?.();
+        window.addEventListener("pointermove", resize);
+        window.addEventListener("pointerup", stopResize);
+        removeResizeListeners = stopResize;
+    };
+
+    topResizeHandle.addEventListener("pointerdown", (event) =>
+        startResize(event, "top"),
+    );
+    rightResizeHandle.addEventListener("pointerdown", (event) =>
+        startResize(event, "right"),
+    );
+    cornerResizeHandle.addEventListener("pointerdown", (event) =>
+        startResize(event, "corner"),
+    );
+
+    wrapper.append(
+        content,
+        closeButton,
+        topResizeHandle,
+        rightResizeHandle,
+        cornerResizeHandle,
+    );
     root.append(wrapper);
 
     return {
         closeButton,
         content,
+        dispose: () => removeResizeListeners?.(),
         wrapper,
     };
 }
@@ -996,25 +1078,27 @@ export function useViewerApiGui({
         const disposeAllPlans = () => {
             Array.from(planDisposers).forEach((disposePlan) => disposePlan());
         };
-        const createPlanView = (planeIndex: number) => {
+        const createPlanView = (planeIndex: number, dynamic: boolean) => {
             const plane = viewerApi.clipping.getPlanes()[planeIndex];
             if (!plane) return;
 
             disposeAllPlans();
 
-            const { closeButton, content, wrapper } = createPlanContainer(
-                viewerContainerRef?.current,
-            );
+            const { closeButton, content, dispose, wrapper } =
+                createPlanContainer(viewerContainerRef?.current);
             let planHandle: ViewerPlanHandle | null = null;
             const disposePlan = () => {
                 planDisposers.delete(disposePlan);
+                dispose();
                 planHandle?.dispose();
                 wrapper.remove();
             };
 
             closeButton.addEventListener("click", disposePlan);
             planDisposers.add(disposePlan);
-            planHandle = viewerApi.plans.createPlan(plane, content);
+            planHandle = dynamic
+                ? viewerApi.plans.createPlan(plane, content)
+                : viewerApi.plans.createPlan(plane.constant, content);
 
             if (!planHandle) {
                 disposePlan();
@@ -1072,7 +1156,9 @@ export function useViewerApiGui({
             trueNorthEnabled: true,
         };
         const plansParams: PlansParams = {
-            createPlan: () => createPlanView(plansParams.planeIndex),
+            createPlan: () =>
+                createPlanView(plansParams.planeIndex, plansParams.dynamic),
+            dynamic: true,
             planeIndex: viewerApi.clipping.getPlanes().length ? 0 : -1,
         };
         let collectorPropertiesLoaded = false;
@@ -1174,6 +1260,7 @@ export function useViewerApiGui({
             color: "#111827",
             delete: () => run(() => api.dimensions.delete()),
             deleteAll: () => run(() => api.dimensions.deleteAll()),
+            deleteDimensions: () => run(() => api.dimensions.deleteAll()),
             endpointScaleFactor: 0.015,
             snapDistance: api.dimensions.getSnapDistance(),
             unit: api.dimensions.getUnit(),
@@ -1207,6 +1294,7 @@ export function useViewerApiGui({
         const performanceParams: PerformanceParams = {
             materialMode: materialModeRef.current,
             performanceMode: performanceModeRef.current,
+            performanceMovingFactor: api.utils.getPerformanceMovingFactor(),
             uploadMode: uploadModeRef.current,
             useDoubleSideMaterial: useDoubleSideMaterialRef.current,
             usePerformanceMoving: usePerformanceMovingRef.current,
@@ -1255,6 +1343,7 @@ export function useViewerApiGui({
         let collectorPropertySelectController: Controller | null = null;
         let colorizeModelIDController: Controller | null = null;
         let materialModeController: Controller | null = null;
+        let uploadModeController: Controller | null = null;
         let planPlaneOptionsKey: string | null = null;
         let planPlaneController: Controller | null = null;
         let planCreateController: Controller | null = null;
@@ -1461,6 +1550,8 @@ export function useViewerApiGui({
             }
             performanceParams.materialMode = materialModeRef.current;
             performanceParams.performanceMode = performanceModeRef.current;
+            performanceParams.performanceMovingFactor =
+                viewerApi.utils.getPerformanceMovingFactor();
             performanceParams.uploadMode = uploadModeRef.current;
             performanceParams.useDoubleSideMaterial =
                 useDoubleSideMaterialRef.current;
@@ -1468,6 +1559,7 @@ export function useViewerApiGui({
                 usePerformanceMovingRef.current;
             performanceParams.useWebGPU = useWebGPURef.current;
             materialModeController?.enable(!hasModels);
+            uploadModeController?.enable(!hasModels);
             useIfcSpaceController?.enable(!hasModels);
             useDoubleSideMaterialController?.enable(!hasModels);
 
@@ -1585,6 +1677,7 @@ export function useViewerApiGui({
                 plansParams.planeIndex = Number(value);
                 syncGuiState();
             });
+        addController(plansFolder.add(plansParams, "dynamic")).name("dynamic");
         planCreateController = addController(
             plansFolder.add(plansParams, "createPlan"),
         ).name("создать");
@@ -1790,6 +1883,19 @@ export function useViewerApiGui({
                 onUsePerformanceMovingChange?.(value);
                 syncGuiState();
             });
+        addController(
+            performanceFolder.add(
+                performanceParams,
+                "performanceMovingFactor",
+                0,
+                1,
+                0.05,
+            ),
+        )
+            .name("performanceMovingFactor")
+            .onChange((value: number) =>
+                run(() => api.utils.setPerformanceMovingFactor(value)),
+            );
         addController(performanceFolder.add(performanceParams, "useWebGPU"))
             .name("useWebGPU(test)")
             .onChange((value: boolean) => {
@@ -1815,6 +1921,28 @@ export function useViewerApiGui({
 
                 materialModeRef.current = nextMaterialMode;
                 onMaterialModeChange?.(nextMaterialMode);
+                syncGuiState();
+            });
+
+        uploadModeController = addController(
+            performanceFolder.add(performanceParams, "uploadMode", [
+                "smooth",
+                "balanced",
+                "fast",
+            ]),
+        )
+            .name("uploadMode")
+            .onChange((value: ViewerUploadMode | string) => {
+                if (hasLoadedModels(modelsDataRef.current)) {
+                    syncGuiState();
+                    return;
+                }
+
+                const nextUploadMode =
+                    value === "smooth" || value === "fast" ? value : "balanced";
+
+                uploadModeRef.current = nextUploadMode;
+                onUploadModeChange?.(nextUploadMode);
                 syncGuiState();
             });
 

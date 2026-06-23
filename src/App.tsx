@@ -720,19 +720,6 @@ function ViewerDemo() {
                         </a>
                     </div>
                 </div>
-
-                {workerProgress && appBusy && (
-                    <span
-                        style={{
-                            position: "absolute",
-                            left: 520,
-                            top: 50,
-                        }}
-                    >
-                        Worker: {workerProgress.phase}{" "}
-                        {Math.round(workerProgress.progress * 100)}%
-                    </span>
-                )}
             </div>
             <div
                 className={!isMobile ? "app-shell" : "app-shell-mobile"}
@@ -775,6 +762,12 @@ function ViewerDemo() {
                             <span>Selected: {selectionInfo.count}</span>
                         </div>
                     </div>
+                    {workerProgress && appBusy && (
+                        <div className="app-worker-progress">
+                            Worker: {workerProgress.phase}{" "}
+                            {Math.round(workerProgress.progress * 100)}%
+                        </div>
+                    )}
                     <Viewer
                         dpr={1}
                         autoFitCamera
